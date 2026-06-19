@@ -1,0 +1,6 @@
+{
+  "name": "Shruti AI Assistant",
+  "description": "Shruti is a real-time, voice-to-voice sassy, clever AI assistant who converses like a close friend.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
