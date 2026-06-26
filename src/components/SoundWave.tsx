@@ -118,10 +118,10 @@ export const SoundWave: React.FC<SoundWaveProps> = ({ state }) => {
               : "bg-rose-950/60 backdrop-blur-md"
           }`}
         >
-          {/* Sassy Zoya branding inside the core or mic icon */}
+          {/* Avani branding inside the core or mic icon */}
           <div className="flex flex-col items-center justify-center text-center">
             {state === "idle" && (
-              <span className="text-2xl font-semibold tracking-wider text-slate-500 font-sans">Z</span>
+              <span className="text-2xl font-semibold tracking-wider text-slate-500 font-sans">A</span>
             )}
             {state === "connecting" && (
               <motion.div
@@ -166,7 +166,7 @@ export const SoundWave: React.FC<SoundWaveProps> = ({ state }) => {
                 transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
               >
                 <span className="text-3xl font-extrabold tracking-widest text-rose-300 font-sans drop-shadow-[0_0_12px_rgba(244,63,94,0.6)]">
-                  SHRUTI
+                  AVANI
                 </span>
                 <span className="text-[9px] uppercase font-mono tracking-widest text-rose-400 mt-0.5">Speaking</span>
               </motion.div>

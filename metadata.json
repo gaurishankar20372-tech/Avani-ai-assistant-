@@ -1,6 +1,6 @@
 {
-  "name": "Shruti AI Assistant",
-  "description": "Shruti is a real-time, voice-to-voice sassy, clever AI assistant who converses like a close friend.",
-  "requestFramePermissions": ["microphone"],
+  "name": "Avani AI Assistant",
+  "description": "Avani (अवनी) is a real-time, voice-to-voice sassy, clever AI assistant who converses like a close friend.",
+  "requestFramePermissions": ["microphone", "camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
