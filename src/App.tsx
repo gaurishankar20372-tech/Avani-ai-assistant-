@@ -38,7 +38,8 @@ import {
   FileText,
   Github,
   ExternalLink,
-  User
+  User,
+  Mail
 } from "lucide-react";
 import { SoundWave } from "./components/SoundWave";
 import { AudioRecorder, AudioPlayer } from "./utils/audio";
@@ -574,7 +575,7 @@ export default function App() {
   const [showMemories, setShowMemories] = useState(false);
   const [newManualFact, setNewManualFact] = useState("");
   const [githubRepo, setGithubRepo] = useState<string>(() => {
-    return localStorage.getItem("avani_creator_github_repo") || "";
+    return localStorage.getItem("avani_creator_github_repo") || "https://github.com/gaurishankar20372-tech/Shruti.ai-.git";
   });
   const [githubInput, setGithubInput] = useState<string>("");
   const [isEditingGithub, setIsEditingGithub] = useState<boolean>(false);
@@ -1972,118 +1973,42 @@ export default function App() {
       <footer className="w-full bg-slate-950/60 border-t border-slate-900/60 backdrop-blur-md px-6 py-5 z-20">
         <div className="max-w-md mx-auto space-y-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-1.5 text-slate-300 text-xs">
-              <User className="w-4 h-4 text-rose-400" />
-              <span className="font-semibold font-sans">Contact with Creator</span>
-            </div>
-            <div className="text-[10px] text-slate-500 font-mono">
-              Creator: <span className="text-rose-400 font-bold">Vinay</span>
+            <div className="flex items-center space-x-1.5 text-slate-300 text-xs font-semibold tracking-wide uppercase">
+              <Github className="w-4 h-4 text-purple-400" />
+              <span className="font-sans">CONTACT WITH CREATOR (रचयिता से संपर्क)</span>
             </div>
           </div>
 
-          <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-3.5 space-y-3">
-            <p className="text-[11px] text-slate-400 leading-normal">
-              Pair this voice assistant with your GitHub repository to keep track of development or share with colleagues.
+          <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4 space-y-3.5">
+            <p className="text-xs text-slate-300 leading-relaxed font-sans text-justify">
+              This application is exclusively developed and authenticated by <strong className="text-rose-400">Vinay</strong>. The link below is a <strong className="text-purple-300">read-only verification link</strong> pointing to the public source repository. Other users can only view this repository as absolute proof of original authorship; they cannot modify, delete, or alter anything in your repository.
             </p>
 
-            {githubRepo ? (
-              <div className="flex flex-col space-y-2">
-                <div className="flex items-center justify-between p-2.5 bg-purple-950/20 border border-purple-500/20 rounded-xl">
-                  <div className="flex items-center space-x-2 min-w-0">
-                    <Github className="w-4 h-4 text-purple-400 shrink-0" />
-                    <span className="text-xs text-slate-200 truncate font-mono" title={githubRepo}>
-                      {githubRepo.replace(/^https?:\/\/(www\.)?github\.com\//, "")}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-1.5 shrink-0">
-                    <a
-                      href={githubRepo}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-1.5 rounded-lg bg-purple-900/40 hover:bg-purple-900/60 text-purple-300 transition-all flex items-center justify-center"
-                      title="Open Repository"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setGithubRepo("");
-                        localStorage.removeItem("avani_creator_github_repo");
-                        setNotification({
-                          message: "GitHub repository link disconnected successfully."
-                        });
-                      }}
-                      className="p-1.5 rounded-lg bg-slate-950 hover:bg-rose-950/40 border border-slate-800 text-slate-400 hover:text-rose-400 transition-all flex items-center justify-center text-[10px] font-semibold px-2"
-                      title="Disconnect Link"
-                    >
-                      Disconnect
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {isEditingGithub ? (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      let cleaned = githubInput.trim();
-                      if (!cleaned) return;
-                      if (!cleaned.startsWith("http://") && !cleaned.startsWith("https://")) {
-                        cleaned = "https://" + cleaned;
-                      }
-                      setGithubRepo(cleaned);
-                      localStorage.setItem("avani_creator_github_repo", cleaned);
-                      setIsEditingGithub(false);
-                      setGithubInput("");
-                      setNotification({
-                        message: "Successfully linked GitHub repository!"
-                      });
-                    }}
-                    className="flex gap-1.5"
-                  >
-                    <input
-                      type="text"
-                      value={githubInput}
-                      onChange={(e) => setGithubInput(e.target.value)}
-                      placeholder="e.g., github.com/username/repo"
-                      className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-rose-500/50 font-mono"
-                      autoFocus
-                    />
-                    <button
-                      type="submit"
-                      disabled={!githubInput.trim()}
-                      className="py-1.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsEditingGithub(false);
-                        setGithubInput("");
-                      }}
-                      className="py-1.5 px-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 hover:text-white text-xs transition-all"
-                    >
-                      Cancel
-                    </button>
-                  </form>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsEditingGithub(true);
-                      setGithubInput(githubRepo);
-                    }}
-                    className="w-full py-2 px-3 border border-dashed border-slate-800 hover:border-purple-500/50 rounded-xl bg-slate-950/40 hover:bg-slate-950/80 text-xs text-slate-400 hover:text-purple-300 transition-all flex items-center justify-center gap-1.5 font-semibold"
-                  >
-                    <Github className="w-4 h-4 text-slate-400" />
-                    <span>Link GitHub Repository</span>
-                  </button>
-                )}
-              </div>
-            )}
+            <div className="flex flex-col gap-2">
+              <a
+                href="https://github.com/gaurishankar20372-tech/Shruti.ai-.git"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-2.5 px-4 rounded-xl bg-purple-950/40 hover:bg-purple-900/40 text-purple-300 border border-purple-800/50 hover:border-purple-600 transition-all flex items-center justify-center gap-2 font-semibold text-xs cursor-pointer"
+                title="Open GitHub Repository (opens in a new tab)"
+              >
+                <Github className="w-4 h-4 text-purple-400 shrink-0" />
+                <span>Verify Creator on GitHub (Read-Only)</span>
+                <ExternalLink className="w-3.5 h-3.5 text-purple-400 shrink-0 ml-1" />
+              </a>
+
+              <a
+                href="https://github.com/gaurishankar20372-tech"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-2.5 px-4 rounded-xl bg-slate-950 hover:bg-slate-900 text-slate-300 border border-slate-800 hover:border-slate-700 transition-all flex items-center justify-center gap-2 font-semibold text-xs cursor-pointer"
+                title="Open Creator's GitHub Profile (opens in a new tab)"
+              >
+                <User className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>View Creator Profile (Read-Only)</span>
+                <ExternalLink className="w-3.5 h-3.5 text-slate-500 shrink-0 ml-1" />
+              </a>
+            </div>
           </div>
         </div>
       </footer>
