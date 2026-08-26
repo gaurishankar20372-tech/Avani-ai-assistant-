@@ -39,9 +39,17 @@ import {
   Github,
   ExternalLink,
   User,
-  Mail
+  Mail,
+  Instagram,
+  ArrowDown,
+  SquarePen,
+  Check,
+  AudioLines,
+  Loader2
 } from "lucide-react";
 import { SoundWave } from "./components/SoundWave";
+import { MarkdownRenderer } from "./components/MarkdownRenderer";
+import { LotusThinkingIcon } from "./components/LotusThinkingIcon";
 import { AudioRecorder, AudioPlayer } from "./utils/audio";
 
 interface ToolLog {
@@ -59,6 +67,7 @@ interface ChatMessage {
   fileName?: string;
   fileType?: string;
   isVoiceTemp?: boolean;
+  suggestions?: string[];
 }
 
 interface ChatSession {
@@ -104,11 +113,23 @@ export default function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [deepAnswers, setDeepAnswers] = useState(false);
 
-  // Chat layout sizing & Speech states
+  // Chat layout sizing, Modal & Speech states
   const [chatHeight, setChatHeight] = useState<"standard" | "comfort">("standard");
-  const [showHistorySidebar, setShowHistorySidebar] = useState(true);
+  const [showHistorySidebar, setShowHistorySidebar] = useState(false);
+  const [showMemoryModal, setShowMemoryModal] = useState(false);
+  const [showScrollDown, setShowScrollDown] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [isListeningSpeech, setIsListeningSpeech] = useState(false);
+  const [isTranscribingSpeech, setIsTranscribingSpeech] = useState(false);
+  const isListeningSpeechRef = useRef(false);
   const speechRecognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const chatInputRef = useRef(chatInput);
+  useEffect(() => {
+    chatInputRef.current = chatInput;
+  }, [chatInput]);
 
   // Chat History / Sessions dropdown & editing states
   const [activeMenuSessionId, setActiveMenuSessionId] = useState<string | null>(null);
@@ -136,6 +157,8 @@ export default function App() {
     }
   });
 
+  const lastWrittenAnswerRef = useRef<{ text: string; timestamp: number } | null>(null);
+
   const currentSessionIdRef = useRef<string | null>(currentSessionId);
   useEffect(() => {
     currentSessionIdRef.current = currentSessionId;
@@ -150,16 +173,29 @@ export default function App() {
     const prevMessages = chatMessagesRef.current;
     const resolvedRaw = typeof newMessages === "function" ? newMessages(prevMessages) : newMessages;
     
-    // Deduplicate consecutive identical messages to guarantee clean chat logs
+    // Deduplicate consecutive identical or redundant messages to guarantee clean chat logs
     const resolved: ChatMessage[] = [];
     for (let i = 0; i < resolvedRaw.length; i++) {
-      if (i > 0 && 
-          resolvedRaw[i].sender === resolvedRaw[i - 1].sender && 
-          resolvedRaw[i].content === resolvedRaw[i - 1].content &&
-          !resolvedRaw[i].isVoiceTemp) {
-        continue;
+      const current = resolvedRaw[i];
+      if (i > 0) {
+        const prev = resolved[resolved.length - 1];
+        if (prev && prev.sender === current.sender) {
+          const prevContent = prev.content.trim().toLowerCase();
+          const currContent = current.content.trim().toLowerCase();
+          // If identical content, skip
+          if (prevContent === currContent) {
+            continue;
+          }
+          // If one message is a substring of the other and both are non-trivial (>20 chars), keep the longer / more complete one
+          if (prevContent.length > 20 && currContent.length > 20 && (prevContent.includes(currContent) || currContent.includes(prevContent))) {
+            if (currContent.length > prevContent.length) {
+              resolved[resolved.length - 1] = current;
+            }
+            continue;
+          }
+        }
       }
-      resolved.push(resolvedRaw[i]);
+      resolved.push(current);
     }
     
     chatMessagesRef.current = resolved;
@@ -224,33 +260,35 @@ export default function App() {
 
   const toggleFullscreen = async () => {
     try {
-      if (!document.fullscreenElement) {
-        const docEl = document.documentElement as any;
-        if (docEl.requestFullscreen) {
-          await docEl.requestFullscreen();
-        } else if (docEl.webkitRequestFullscreen) { /* Safari / Older iOS/Android browser support */
-          await docEl.webkitRequestFullscreen();
-        } else if (docEl.msRequestFullscreen) {
-          await docEl.msRequestFullscreen();
+      const nextState = !isFullscreen;
+      setIsFullscreen(nextState);
+
+      // Attempt native browser fullscreen if document is focused and permitted
+      if (typeof document !== "undefined") {
+        if (nextState) {
+          if (!document.fullscreenElement) {
+            const docEl = document.documentElement as any;
+            if (document.hasFocus && document.hasFocus()) {
+              if (docEl.requestFullscreen) {
+                await docEl.requestFullscreen().catch(() => {});
+              } else if (docEl.webkitRequestFullscreen) {
+                await docEl.webkitRequestFullscreen().catch(() => {});
+              }
+            }
+          }
         } else {
-          setIsFullscreen(true);
-        }
-      } else {
-        const doc = document as any;
-        if (doc.exitFullscreen) {
-          await doc.exitFullscreen();
-        } else if (doc.webkitExitFullscreen) {
-          await doc.webkitExitFullscreen();
-        } else if (doc.msExitFullscreen) {
-          await doc.msExitFullscreen();
-        } else {
-          setIsFullscreen(false);
+          if (document.fullscreenElement) {
+            const doc = document as any;
+            if (doc.exitFullscreen) {
+              await doc.exitFullscreen().catch(() => {});
+            } else if (doc.webkitExitFullscreen) {
+              await doc.webkitExitFullscreen().catch(() => {});
+            }
+          }
         }
       }
     } catch (err) {
-      console.warn("Fullscreen API failed or restricted in sandbox/iframe frame:", err);
-      // Absolute fallback to a pseudo-fullscreen viewport state
-      setIsFullscreen(!isFullscreen);
+      console.warn("Fullscreen toggle fallback:", err);
     }
   };
 
@@ -390,59 +428,209 @@ export default function App() {
     }
   };
 
-  // Speech to Text Direct Transcription
-  const startSpeechToText = () => {
-    const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognitionClass) {
-      setNotification({ message: "Speech-to-Text voice typing is not supported by your browser. Please try Chrome, Edge, or Safari." });
+  // Speech to Text Direct Transcription (Dual-Engine: Continuous Web Speech API + Gemini Multimodal Audio Transcribe Fallback)
+  const startSpeechToText = async () => {
+    if (isListeningSpeechRef.current) {
+      stopSpeechToText();
       return;
     }
+
+    setIsListeningSpeech(true);
+    isListeningSpeechRef.current = true;
+
+    // 1. Acquire microphone stream for hardware recording fallback
+    let stream: MediaStream | null = null;
     try {
-      const recognition = new SpeechRecognitionClass();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = "en-US";
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaStreamRef.current = stream;
+        audioChunksRef.current = [];
 
-      recognition.onstart = () => {
-        setIsListeningSpeech(true);
-      };
-
-      recognition.onresult = (event: any) => {
-        const resultText = event.results[0][0].transcript;
-        if (resultText && resultText.trim()) {
-          setChatInput((prev) => {
-            const combined = prev.trim() ? prev.trim() + " " + resultText.trim() : resultText.trim();
-            // Automatically send the combined text!
-            setTimeout(() => {
-              sendChatMessage(combined);
-            }, 50);
-            return "";
-          });
+        if (typeof MediaRecorder !== "undefined") {
+          const mimeTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"];
+          const supportedMime = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || "";
+          const recorder = supportedMime ? new MediaRecorder(stream, { mimeType: supportedMime }) : new MediaRecorder(stream);
+          
+          recorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) {
+              audioChunksRef.current.push(e.data);
+            }
+          };
+          recorder.start(250);
+          mediaRecorderRef.current = recorder;
         }
-      };
-
-      recognition.onerror = (event: any) => {
-        console.error("Speech transcription error", event.error);
+      }
+    } catch (micErr: any) {
+      console.warn("Could not acquire MediaStream for recording fallback:", micErr);
+      if (micErr?.name === "NotAllowedError" || micErr?.name === "PermissionDeniedError") {
+        setNotification({ message: "Microphone permission denied. Please allow microphone access in your browser." });
         setIsListeningSpeech(false);
-      };
+        isListeningSpeechRef.current = false;
+        return;
+      }
+    }
 
-      recognition.onend = () => {
-        setIsListeningSpeech(false);
-      };
+    // 2. Initialize Web Speech Recognition
+    const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognitionClass) {
+      try {
+        const recognition = new SpeechRecognitionClass();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = navigator.language || "en-US";
 
-      speechRecognitionRef.current = recognition;
-      recognition.start();
-    } catch (err) {
-      console.error(err);
+        recognition.onstart = () => {
+          setIsListeningSpeech(true);
+          isListeningSpeechRef.current = true;
+        };
+
+        recognition.onresult = (event: any) => {
+          let accumulatedFinal = "";
+          let accumulatedInterim = "";
+          for (let i = 0; i < event.results.length; i++) {
+            const res = event.results[i];
+            if (res.isFinal) {
+              accumulatedFinal += res[0].transcript + " ";
+            } else {
+              accumulatedInterim += res[0].transcript;
+            }
+          }
+          const fullText = (accumulatedFinal + accumulatedInterim).trim();
+          if (fullText) {
+            setChatInput(fullText);
+          }
+        };
+
+        recognition.onerror = (event: any) => {
+          // Non-fatal or iframe policy restrictions
+          if (event.error === "no-speech") {
+            // Keep listening seamlessly - don't cancel recording on short silence
+            return;
+          }
+          
+          if (event.error === "not-allowed" || event.error === "service-not-allowed" || event.error === "audio-capture") {
+            // Web Speech API is restricted or denied in this iframe environment.
+            // Safely detach the Web Speech instance to stop error loops.
+            if (speechRecognitionRef.current) {
+              speechRecognitionRef.current.onend = null;
+              try {
+                speechRecognitionRef.current.stop();
+              } catch {
+                // ignore
+              }
+              speechRecognitionRef.current = null;
+            }
+
+            // If hardware media recorder is active, continue recording seamlessly for Gemini fallback!
+            if (!mediaStreamRef.current && !mediaRecorderRef.current) {
+              setNotification({ message: "Microphone permission required. Please allow microphone access in your browser." });
+              stopSpeechToText();
+            }
+          }
+        };
+
+        recognition.onend = () => {
+          // If the user hasn't explicitly stopped listening and the recognition instance is still valid, restart
+          if (isListeningSpeechRef.current && speechRecognitionRef.current) {
+            try {
+              recognition.start();
+            } catch {
+              // Ignore if already active or stopped
+            }
+          }
+        };
+
+        speechRecognitionRef.current = recognition;
+        recognition.start();
+      } catch (recErr) {
+        console.warn("Web SpeechRecognition could not start directly:", recErr);
+      }
+    } else if (!stream) {
+      setNotification({ message: "Speech recognition is not supported in this browser. Please try Chrome, Edge, or Safari." });
       setIsListeningSpeech(false);
+      isListeningSpeechRef.current = false;
     }
   };
 
   const stopSpeechToText = () => {
-    if (speechRecognitionRef.current) {
-      speechRecognitionRef.current.stop();
-    }
+    isListeningSpeechRef.current = false;
     setIsListeningSpeech(false);
+
+    // Stop Web Speech Recognition
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.onend = null;
+        speechRecognitionRef.current.stop();
+      } catch (e) {
+        // ignore
+      }
+      speechRecognitionRef.current = null;
+    }
+
+    // Stop MediaRecorder and transcribe fallback if needed
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.onstop = async () => {
+        // Stop all audio tracks to release microphone hardware
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(t => t.stop());
+          mediaStreamRef.current = null;
+        }
+
+        // If Web Speech API didn't produce text, use our Gemini multimodal transcription server fallback!
+        const currentInput = chatInputRef.current?.trim() || "";
+        if (!currentInput && audioChunksRef.current.length > 0) {
+          try {
+            setIsTranscribingSpeech(true);
+            const recordedBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+              const base64Audio = typeof reader.result === "string" ? reader.result : "";
+              if (base64Audio) {
+                try {
+                  const res = await fetch("/api/transcribe", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ audioData: base64Audio, mimeType: recorder.mimeType || "audio/webm" })
+                  });
+                  if (res.ok) {
+                    const data = await res.json();
+                    if (data.success && data.text && data.text.trim()) {
+                      setChatInput(data.text.trim());
+                    }
+                  } else {
+                    const errText = await res.text().catch(() => "");
+                    console.warn("Transcribe request failed:", res.status, errText);
+                  }
+                } catch (apiErr) {
+                  console.error("Transcribe API error:", apiErr);
+                } finally {
+                  setIsTranscribingSpeech(false);
+                }
+              } else {
+                setIsTranscribingSpeech(false);
+              }
+            };
+            reader.readAsDataURL(recordedBlob);
+          } catch (err) {
+            console.error("Audio blob processing error:", err);
+            setIsTranscribingSpeech(false);
+          }
+        }
+      };
+
+      try {
+        recorder.stop();
+      } catch (e) {
+        // ignore
+      }
+      mediaRecorderRef.current = null;
+    } else {
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach(t => t.stop());
+        mediaStreamRef.current = null;
+      }
+    }
   };
 
   // Chat Session history loaders and managers
@@ -502,7 +690,7 @@ export default function App() {
           console.error(err);
         }
       } else {
-        const defaultMsgs = [
+        const defaultMsgs: ChatMessage[] = [
           {
             sender: "bot",
             content: "Hello! I am Avani (अवनी), your polite, obedient, and respectful AI assistant. Welcome to our chat room! How may I assist you today?",
@@ -561,14 +749,28 @@ export default function App() {
   const [memories, setMemories] = useState<string[]>(() => {
     try {
       const stored = localStorage.getItem("avani_memories");
-      return stored ? JSON.parse(stored) : [
-        "My creator and master coder is exclusively Vinay.",
-        "My first name is Avani and my last name is Joya. I prefer to be addressed and refer to myself simply as Avani."
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          const filtered = parsed
+            .filter(
+              (m: string) => !m.toLowerCase().includes("joya") && !m.toLowerCase().includes("zoya")
+            )
+            .map((m: string) => {
+              if (m.includes("MG Sankara") || m.includes("master coder is exclusively Vinay")) {
+                return "Vinay Pratap Shankar (Vinay) is the Founder (निर्माता) of MG Shankar Tech and the creator of Avani.";
+              }
+              return m;
+            });
+          if (filtered.length > 0) return filtered;
+        }
+      }
+      return [
+        "Vinay Pratap Shankar (Vinay) is the Founder (निर्माता) of MG Shankar Tech and the creator of Avani."
       ];
     } catch {
       return [
-        "My creator and master coder is exclusively Vinay.",
-        "My first name is Avani and my last name is Joya. I prefer to be addressed and refer to myself simply as Avani."
+        "Vinay Pratap Shankar (Vinay) is the Founder (निर्माता) of MG Shankar Tech and the creator of Avani."
       ];
     }
   });
@@ -591,11 +793,38 @@ export default function App() {
       const scroller = document.getElementById("chat-scroller");
       if (scroller) {
         setTimeout(() => {
-          scroller.scrollTop = scroller.scrollHeight;
+          scroller.scrollTo({
+            top: scroller.scrollHeight,
+            behavior: "smooth"
+          });
         }, 80);
       }
     }
   }, [chatMessages, appMode]);
+
+  const handleChatScroll = () => {
+    const scroller = document.getElementById("chat-scroller");
+    if (!scroller) return;
+    const distanceToBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+    setShowScrollDown(distanceToBottom > 120);
+  };
+
+  const scrollToBottom = () => {
+    const scroller = document.getElementById("chat-scroller");
+    if (scroller) {
+      scroller.scrollTo({
+        top: scroller.scrollHeight,
+        behavior: "smooth"
+      });
+    }
+  };
+
+  const handleRegenerateResponse = () => {
+    const lastUserMsg = [...chatMessages].reverse().find(m => m.sender === "user");
+    if (lastUserMsg && !isChatLoading) {
+      sendChatMessage(lastUserMsg.content);
+    }
+  };
 
   // Audio & Connection Refs
   const audioRecorderRef = useRef<AudioRecorder | null>(null);
@@ -664,7 +893,30 @@ export default function App() {
 
       ws.onmessage = async (event) => {
         try {
-          const msg = JSON.parse(event.data);
+          let rawData = event.data;
+          if (rawData instanceof Blob) {
+            rawData = await rawData.text();
+          } else if (rawData instanceof ArrayBuffer) {
+            rawData = new TextDecoder().decode(rawData);
+          }
+
+          if (typeof rawData !== "string") {
+            return;
+          }
+
+          // Check if data is plain text error or non-JSON
+          let msg: any = null;
+          try {
+            msg = JSON.parse(rawData);
+          } catch {
+            if (rawData.toLowerCase().includes("permission") || rawData.toLowerCase().includes("denied") || rawData.toLowerCase().includes("error")) {
+              setErrorMessage(rawData);
+              setConnectionStatus("error");
+            }
+            return;
+          }
+
+          if (!msg || typeof msg !== "object") return;
 
           // Handle WebSocket events
           if (msg.type === "status" && msg.status === "connected") {
@@ -690,24 +942,50 @@ export default function App() {
 
           if (msg.type === "transcription" && msg.data) {
             const isUser = msg.source === "user";
+            const chunk = String(msg.data).trim();
+            if (!chunk) return;
+
+            // If this is a bot voice transcription arriving after switchToChatMode, suppress repeating the written answer
+            if (!isUser && lastWrittenAnswerRef.current) {
+              const { text: writtenText, timestamp } = lastWrittenAnswerRef.current;
+              if (Date.now() - timestamp < 30000) {
+                const lowerChunk = chunk.toLowerCase();
+                if (
+                  writtenText.includes(lowerChunk) || 
+                  lowerChunk.includes(writtenText) || 
+                  (lowerChunk.length > 15 && writtenText.startsWith(lowerChunk.slice(0, 15)))
+                ) {
+                  return;
+                }
+              }
+            }
+
             updateChatMessagesAndSync((prev) => {
               const last = prev[prev.length - 1];
               // If the last message belongs to the same sender and is a voice temp chunk, update it.
               if (last && last.sender === (isUser ? "user" : "bot") && last.isVoiceTemp) {
-                if (last.content.endsWith(msg.data) || last.content.includes(msg.data)) {
+                if (last.content.endsWith(chunk) || last.content.includes(chunk)) {
                   return prev;
                 }
                 return [
                   ...prev.slice(0, -1),
-                  { ...last, content: last.content + " " + msg.data }
+                  { ...last, content: last.content + " " + chunk }
                 ];
               } else {
+                // If it's a bot message, check if the last message from bot already has this text
+                if (!isUser && last && last.sender === "bot") {
+                  const lastNorm = last.content.trim().toLowerCase();
+                  const chunkNorm = chunk.toLowerCase();
+                  if (lastNorm === chunkNorm || lastNorm.includes(chunkNorm) || (chunkNorm.length > 20 && lastNorm.startsWith(chunkNorm.slice(0, 20)))) {
+                    return prev;
+                  }
+                }
                 // Otherwise start a new voice-temp message card
                 return [
                   ...prev,
                   {
                     sender: isUser ? "user" : "bot",
-                    content: msg.data,
+                    content: chunk,
                     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                     isVoiceTemp: true
                   }
@@ -902,7 +1180,8 @@ export default function App() {
       const botMsg: ChatMessage = {
         sender: "bot",
         content: data.reply || "I encountered a minor issue generating an answer. Could we try again?",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        suggestions: data.suggestions && Array.isArray(data.suggestions) ? data.suggestions : []
       };
       updateChatMessagesAndSync((prev) => [...prev, botMsg]);
     } catch (err: any) {
@@ -972,8 +1251,8 @@ export default function App() {
             lowerFact.includes("built me") || 
             lowerFact.includes("made me") || 
             lowerFact.includes("created me") || 
-            lowerFact.includes("programmer") || 
-            lowerFact.includes("master");
+            lowerFact.includes("programmed me") ||
+            lowerFact.includes("programmer");
           
           const mentionsVinay = lowerFact.includes("vinay");
 
@@ -1067,22 +1346,45 @@ export default function App() {
 
         // If Gemini provided a written answer to post in the chat
         if (call.args && (call.args as any).answerToWrite) {
-          const writtenAnswer = (call.args as any).answerToWrite;
-          updateChatMessagesAndSync((prev) => [
-            ...prev,
-            {
-              sender: "bot",
-              content: writtenAnswer,
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            }
-          ]);
+          const writtenAnswer = String((call.args as any).answerToWrite).trim();
+          if (writtenAnswer) {
+            lastWrittenAnswerRef.current = {
+              text: writtenAnswer.toLowerCase(),
+              timestamp: Date.now()
+            };
+            updateChatMessagesAndSync((prev) => {
+              // Remove any in-flight temporary voice chunk from the bot
+              const cleaned = prev.filter(m => !(m.sender === "bot" && m.isVoiceTemp));
+              const last = cleaned[cleaned.length - 1];
+              if (last && last.sender === "bot" && (last.content.trim() === writtenAnswer || writtenAnswer.includes(last.content.trim()))) {
+                return [
+                  ...cleaned.slice(0, -1),
+                  {
+                    sender: "bot",
+                    content: writtenAnswer,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    isVoiceTemp: false
+                  }
+                ];
+              }
+              return [
+                ...cleaned,
+                {
+                  sender: "bot",
+                  content: writtenAnswer,
+                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  isVoiceTemp: false
+                }
+              ];
+            });
+          }
         }
 
         functionResponses.push({
           id: call.id,
           name: call.name,
           response: {
-            output: `Successfully switched user interface to text-based Chat Mode. The user can now see our chat logs and type directly to us!`
+            output: `Successfully switched user interface to text-based Chat Mode and rendered the written answer directly on screen. Do NOT repeat or read aloud the written answer in voice or audio.`
           }
         });
       } else if (call.name === "switchToVoiceMode") {
@@ -1112,7 +1414,11 @@ export default function App() {
   return (
     <div 
       id="app-container"
-      className="min-h-screen bg-slate-950 text-white font-sans overflow-x-hidden flex flex-col justify-between select-none relative"
+      className={`w-full text-white font-sans select-none relative ${
+        appMode === "chat" 
+          ? "h-[100dvh] max-h-[100dvh] overflow-hidden flex flex-col justify-between" 
+          : "min-h-screen overflow-x-hidden flex flex-col justify-between"
+      } bg-slate-950`}
       style={{
         backgroundImage: "radial-gradient(circle at 50% 120%, rgba(244,63,94,0.1) 0%, rgba(124,58,237,0.06) 40%, rgba(15,23,42,1) 100%)"
       }}
@@ -1120,40 +1426,42 @@ export default function App() {
       {/* Decorative Cyberpunk Scanline overlay */}
       <div className="pointer-events-none absolute inset-0 bg-scanlines opacity-[0.03]" />
 
-      {/* HEADER SECTION */}
-      <header className="px-6 py-5 flex items-center justify-between border-b border-slate-900 bg-slate-950/80 backdrop-blur-md z-20 sticky top-0">
-        <div className="flex items-center space-x-3">
-          <div className="relative">
-            <div className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping absolute inset-0" />
-            <div className="w-2.5 h-2.5 rounded-full bg-rose-500 relative" />
+      {/* HEADER SECTION (Hidden in Fullscreen) */}
+      {!isFullscreen && (
+        <header className="px-4 md:px-6 py-3.5 md:py-4 flex items-center justify-between border-b border-slate-900 bg-slate-950/80 backdrop-blur-md z-20 sticky top-0 shrink-0">
+          <div className="flex items-center space-x-3">
+            <div className="relative">
+              <div className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping absolute inset-0" />
+              <div className="w-2.5 h-2.5 rounded-full bg-rose-500 relative" />
+            </div>
+            <div>
+              <h1 className="text-lg md:text-xl font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-rose-400 via-pink-400 to-indigo-400">
+                AVANI
+              </h1>
+              <p className="text-[9px] md:text-[10px] font-mono tracking-widest text-indigo-300">VOICE & CHAT AI v3.1</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-rose-400 via-pink-400 to-indigo-400">
-              AVANI
-            </h1>
-            <p className="text-[10px] font-mono tracking-widest text-indigo-300">VOICE AI v3.1</p>
+
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setShowSecurity(true)}
+              className="p-1.5 md:p-2 rounded-full hover:bg-slate-900 text-rose-400 hover:text-white transition-all bg-slate-900/40 border border-slate-800/60 flex items-center justify-center gap-1.5 px-2.5 md:px-3"
+              title="System Security & Integrity Kernel"
+            >
+              <Shield className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">Secure</span>
+            </button>
+
+            <button
+              onClick={() => setShowHelp(true)}
+              className="p-1.5 md:p-2 rounded-full hover:bg-slate-900 text-slate-400 hover:text-white transition-all bg-slate-900/40 border border-slate-800/60"
+              title="Sassy Instructions"
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
           </div>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => setShowSecurity(true)}
-            className="p-2 rounded-full hover:bg-slate-900 text-rose-400 hover:text-white transition-all bg-slate-900/40 border border-slate-800/60 flex items-center justify-center gap-1.5 px-3"
-            title="System Security & Integrity Kernel"
-          >
-            <Shield className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">Secure</span>
-          </button>
-
-          <button
-            onClick={() => setShowHelp(true)}
-            className="p-2 rounded-full hover:bg-slate-900 text-slate-400 hover:text-white transition-all bg-slate-900/40 border border-slate-800/60"
-            title="Sassy Instructions"
-          >
-            <HelpCircle className="w-4 h-4" />
-          </button>
-        </div>
-      </header>
+        </header>
+      )}
 
       {/* TOAST NOTIFICATION FOR TOOL CALLS */}
       <AnimatePresence>
@@ -1194,37 +1502,31 @@ export default function App() {
       </AnimatePresence>
 
       {/* MAIN CONTAINER */}
-      <main className={`flex-1 ${
+      <main className={`flex-1 min-h-0 w-full flex flex-col transition-all duration-300 ${
         appMode === "chat" 
-          ? (isFullscreen ? "max-w-none w-full px-1 md:px-4 py-1 flex-1" : "max-w-none w-full px-3 md:px-8 py-2 md:py-4 flex-1")
-          : "max-w-lg mx-auto w-full px-6 py-6"
-      } flex flex-col justify-center items-center transition-all duration-300`}>
+          ? "fixed inset-0 z-50 h-[100dvh] w-screen p-0 m-0 border-0 rounded-none shadow-none overflow-hidden bg-[#17181c]"
+          : "max-w-lg mx-auto w-full px-6 py-6 justify-center items-center"
+      }`}>
         
-        {/* MODE SWITCHER */}
-        <div className="flex items-center bg-slate-900/60 p-1 rounded-xl border border-slate-800/80 mb-6 scale-95 transition-all">
-          <button
-            onClick={() => setAppMode("voice")}
-            className={`flex items-center space-x-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold tracking-wider transition-all ${
-              appMode === "voice"
-                ? "bg-rose-500 text-white shadow-md shadow-rose-900/30"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Mic className="w-3.5 h-3.5" />
-            <span>VOICE MODE</span>
-          </button>
-          <button
-            onClick={() => setAppMode("chat")}
-            className={`flex items-center space-x-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold tracking-wider transition-all ${
-              appMode === "chat"
-                ? "bg-purple-600 text-white shadow-md shadow-purple-950/30"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>CHAT MODE</span>
-          </button>
-        </div>
+        {/* MODE SWITCHER (Shown only in Voice Mode) */}
+        {appMode === "voice" && (
+          <div className="flex items-center bg-slate-900/60 p-1 rounded-xl border border-slate-800/80 mb-6 scale-95 transition-all">
+            <button
+              onClick={() => setAppMode("voice")}
+              className="flex items-center space-x-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold tracking-wider transition-all bg-rose-500 text-white shadow-md shadow-rose-900/30"
+            >
+              <Mic className="w-3.5 h-3.5" />
+              <span>VOICE MODE</span>
+            </button>
+            <button
+              onClick={() => setAppMode("chat")}
+              className="flex items-center space-x-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold tracking-wider transition-all text-slate-400 hover:text-slate-200"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>CHAT MODE</span>
+            </button>
+          </div>
+        )}
 
         {appMode === "voice" ? (
           <>
@@ -1383,144 +1685,81 @@ export default function App() {
             </div>
           </>
         ) : (
-          /* CHAT MODE VIEW */
-          <div className="w-full flex flex-col space-y-4 mt-2 mb-6 transition-all duration-300">
-            {/* Header with size toggles and sidebar toggle */}
-            <div className="flex items-center justify-between px-1">
-              <div className="flex items-center gap-2.5">
-                {/* Three lines (Menu) button to toggle chat history, matching ChatGPT */}
+          /* CHAT MODE VIEW: PERMANENTLY FULL-SCREEN DOCUMENT STYLE (CHATGPT / GEMINI PARITY) */
+          <div className="w-full h-full flex flex-col bg-[#17181c] overflow-hidden">
+            
+            {/* Top Navigation Bar (ChatGPT style) */}
+            <div className="w-full flex items-center justify-between px-3 md:px-5 py-3 bg-[#17181c] border-b border-slate-800/80 z-30 shrink-0">
+              <div className="flex items-center gap-3">
+                {/* Menu button for History Sidebar */}
                 <button
                   type="button"
                   onClick={() => setShowHistorySidebar(!showHistorySidebar)}
-                  className={`p-2 rounded-xl border transition-all flex items-center justify-center ${
+                  className={`p-2.5 rounded-xl transition-all flex items-center justify-center cursor-pointer ${
                     showHistorySidebar
-                      ? "bg-purple-950/40 border-purple-500/30 text-purple-300"
-                      : "bg-slate-950/60 border-slate-800/80 text-slate-400 hover:text-white"
+                      ? "bg-purple-950/50 text-purple-300 border border-purple-500/30"
+                      : "text-slate-400 hover:text-white hover:bg-slate-800/60"
                   }`}
-                  title="Toggle Chat History"
+                  title="Toggle Chat History Sidebar"
                 >
-                  <Menu className="w-4.5 h-4.5" />
+                  <Menu className="w-6 h-6" />
                 </button>
 
-                <div className="text-left space-y-0.5">
-                  <p className="text-purple-400 uppercase font-mono tracking-widest text-[9px]">Chat Mode Active</p>
-                  <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-1.5">
-                    <MessageSquare className="w-4 h-4 text-purple-400" /> Texting with Avani (अवनी)
-                  </h2>
+                {/* Model / Bot Full Name */}
+                <div className="flex items-center">
+                  <span className="font-semibold text-slate-100 text-base md:text-lg tracking-tight">Avani AI (अवनी)</span>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                {/* Full Screen Button (Android Full Screen) */}
+              {/* Right Action Icons: Voice Mode Icon (to left of 3 dots) + Three-dot Memory button */}
+              <div className="flex items-center gap-2">
+                {/* Voice Mode Icon Button */}
                 <button
                   type="button"
-                  onClick={toggleFullscreen}
-                  className={`p-1.5 px-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
-                    isFullscreen
-                      ? "bg-rose-950/60 border-rose-500/40 text-rose-300 hover:bg-rose-900/40"
-                      : "bg-slate-950/60 border-slate-800/80 text-slate-300 hover:text-white"
-                  }`}
-                  title="Toggle Full Screen View (Recommended for Android / Mobile devices)"
+                  onClick={() => setAppMode("voice")}
+                  className="p-2 sm:p-2.5 rounded-xl text-purple-400 hover:text-purple-300 hover:bg-purple-950/60 border border-purple-500/30 hover:border-purple-500/60 transition-all cursor-pointer flex items-center justify-center shadow-sm"
+                  title="Switch to Realtime Voice Mode"
                 >
-                  {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-                  <span>{isFullscreen ? "Exit Full Screen" : "Full Screen"}</span>
+                  <AudioLines className="w-5 h-5 sm:w-6 sm:h-6" />
                 </button>
 
-
-
-                {/* Quick New Chat Button like ChatGPT */}
+                {/* Three-dot option for AI's Memory */}
                 <button
                   type="button"
-                  onClick={startNewSession}
-                  className="p-1.5 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md shadow-purple-950/40"
-                  title="Start a New Chat"
+                  onClick={() => setShowMemoryModal(true)}
+                  className="p-2 sm:p-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800/80 transition-all cursor-pointer flex items-center justify-center relative"
+                  title="Avani AI's Memory Bank"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>New Chat</span>
+                  <MoreVertical className="w-5 h-5 sm:w-6 sm:h-6" />
+                  {memories.length > 0 && (
+                    <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-purple-500 ring-2 ring-[#17181c]" />
+                  )}
                 </button>
-
-                {/* Delete Chat Button */}
-                {confirmDeleteActive ? (
-                  <div className="flex items-center gap-1 bg-rose-950/80 border border-rose-800/60 rounded-xl p-1">
-                    <span className="text-[10px] text-rose-300 font-semibold px-1.5">Delete?</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (currentSessionId) {
-                          deleteSession(currentSessionId);
-                        } else {
-                          // Clear transient default messages
-                          const defaultMsgs = [
-                            {
-                              sender: "bot",
-                              content: "Hello! I am Avani (अवनी), your polite, obedient, and respectful AI assistant. Welcome to our chat room! How may I assist you today?",
-                              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                            }
-                          ];
-                          setChatMessages(defaultMsgs);
-                          chatMessagesRef.current = defaultMsgs;
-                          try {
-                            localStorage.setItem("avani_chat_messages", JSON.stringify(defaultMsgs));
-                          } catch (err) {
-                            console.error(err);
-                          }
-                        }
-                        setNotification({
-                          message: "Chat deleted successfully."
-                        });
-                        setConfirmDeleteActive(false);
-                      }}
-                      className="p-1 px-2 rounded bg-rose-700 hover:bg-rose-600 text-white text-[10px] font-bold transition-all cursor-pointer"
-                      title="Yes, delete"
-                    >
-                      Yes
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDeleteActive(false)}
-                      className="p-1 px-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold transition-all cursor-pointer"
-                      title="No, cancel"
-                    >
-                      No
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmDeleteActive(true)}
-                    className="p-1.5 px-3 rounded-xl bg-rose-950/60 hover:bg-rose-900/60 text-rose-300 border border-rose-800/50 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
-                    title="Delete This Chat Session"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete Chat</span>
-                  </button>
-                )}
               </div>
             </div>
 
-            {/* Layout Box: Responsive Multi-Pane */}
-            <div className="w-full flex flex-col md:flex-row gap-4 items-stretch">
+            {/* Main Area: Sidebar + Document Reader Canvas */}
+            <div className="flex-1 min-h-0 flex items-stretch overflow-hidden relative">
               
-              {/* Chat History sidebar */}
+              {/* History Sidebar (ChatGPT style) */}
               {showHistorySidebar && (
-                <div className="w-full md:w-64 bg-slate-950/60 border border-slate-800/80 rounded-2xl p-3.5 flex flex-col transition-all duration-300">
-                  <div className="flex items-center justify-between mb-3 border-b border-slate-800/60 pb-2">
-                    <h3 className="text-[10px] font-bold text-slate-400 font-sans tracking-wider uppercase flex items-center gap-1.5">
-                      <History className="w-3.5 h-3.5 text-purple-400" /> Chat Logs
+                <div className="w-64 md:w-72 bg-[#121316] border-r border-slate-800/80 p-3 flex flex-col z-20 shrink-0 transition-all duration-300 animate-fadeIn">
+                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-800/60">
+                    <h3 className="text-xs font-bold text-slate-300 tracking-wider uppercase flex items-center gap-2">
+                      <History className="w-4.5 h-4.5 text-purple-400" /> Chat Logs
                     </h3>
                     <button
                       onClick={startNewSession}
-                      className="p-1 rounded-lg bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 transition-all flex items-center gap-1 text-[9px] font-semibold px-2"
-                      title="New Chat Session"
+                      className="p-1.5 px-2.5 rounded-lg bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 transition-all flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
                     >
-                      <Plus className="w-3 h-3" /> New
+                      <Plus className="w-4 h-4" /> New
                     </button>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto space-y-1.5 max-h-[160px] md:max-h-[580px] pr-1 scrollbar-thin">
+                  <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin">
                     {chatSessions.length === 0 ? (
-                      <div className="text-center py-6 text-[10px] text-slate-500">
-                        No saved history yet.<br/>Your chats will save automatically.
+                      <div className="text-center py-8 text-xs text-slate-500">
+                        No saved chats yet.<br/>Conversations save automatically.
                       </div>
                     ) : (
                       chatSessions.map((session) => (
@@ -1533,8 +1772,8 @@ export default function App() {
                           }}
                           className={`group w-full text-left p-2.5 rounded-xl border text-xs cursor-pointer flex items-center justify-between transition-all relative ${
                             session.id === currentSessionId
-                              ? "bg-purple-950/35 border-purple-500/40 text-purple-100 font-medium"
-                              : "bg-slate-900/20 border-slate-800/60 text-slate-400 hover:bg-slate-900/50 hover:text-slate-200"
+                              ? "bg-purple-950/40 border-purple-500/40 text-purple-100 font-medium"
+                              : "bg-slate-900/30 border-slate-800/60 text-slate-400 hover:bg-slate-900/70 hover:text-slate-200"
                           }`}
                         >
                           {editingSessionId === session.id ? (
@@ -1552,13 +1791,13 @@ export default function App() {
                               />
                               <button
                                 onClick={() => saveRenameSession(session.id)}
-                                className="p-1 text-emerald-400 hover:text-emerald-300 font-bold"
+                                className="p-1 text-emerald-400 hover:text-emerald-300 font-bold cursor-pointer"
                               >
                                 ✓
                               </button>
                               <button
                                 onClick={() => setEditingSessionId(null)}
-                                className="p-1 text-rose-400 hover:text-rose-300"
+                                className="p-1 text-rose-400 hover:text-rose-300 cursor-pointer"
                               >
                                 ✕
                               </button>
@@ -1566,8 +1805,8 @@ export default function App() {
                           ) : (
                             <>
                               <div className="flex-1 min-w-0 pr-1.5">
-                                <p className="truncate text-[11px] leading-tight font-sans">{session.title}</p>
-                                <span className="text-[8px] text-slate-500 font-mono block mt-0.5">{session.timestamp.split(",")[0]}</span>
+                                <p className="truncate text-xs leading-tight">{session.title}</p>
+                                <span className="text-[9px] text-slate-500 font-mono block mt-0.5">{session.timestamp.split(",")[0]}</span>
                               </div>
                               
                               {deletingSessionId === session.id ? (
@@ -1580,7 +1819,6 @@ export default function App() {
                                       setDeletingSessionId(null);
                                     }}
                                     className="p-0.5 px-1 bg-rose-700 hover:bg-rose-600 rounded text-white text-[9px] font-bold cursor-pointer"
-                                    title="Yes"
                                   >
                                     ✓
                                   </button>
@@ -1588,7 +1826,6 @@ export default function App() {
                                     type="button"
                                     onClick={() => setDeletingSessionId(null)}
                                     className="p-0.5 px-1 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 text-[9px] font-bold cursor-pointer"
-                                    title="No"
                                   >
                                     ✕
                                   </button>
@@ -1598,18 +1835,18 @@ export default function App() {
                                   <button
                                     type="button"
                                     onClick={() => startRenameSession(session.id, session.title)}
-                                    className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1 rounded-md text-slate-500 hover:text-purple-300 hover:bg-slate-800/50 transition-all cursor-pointer flex items-center justify-center"
-                                    title="Rename chat log"
+                                    className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-purple-300 hover:bg-slate-800/60 transition-all cursor-pointer"
+                                    title="Rename chat"
                                   >
-                                    <Edit2 className="w-3.5 h-3.5" />
+                                    <Edit2 className="w-4 h-4" />
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => setDeletingSessionId(session.id)}
-                                    className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1 rounded-md text-slate-500 hover:text-rose-400 hover:bg-rose-950/30 transition-all cursor-pointer flex items-center justify-center"
-                                    title="Delete chat log"
+                                    className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition-all cursor-pointer"
+                                    title="Delete chat"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <Trash2 className="w-4 h-4" />
                                   </button>
                                 </div>
                               )}
@@ -1622,113 +1859,173 @@ export default function App() {
                 </div>
               )}
 
-              {/* Main Chat Box */}
-              <div className={`flex-1 bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4 flex flex-col ${
-                isFullscreen 
-                  ? "h-[calc(100vh-170px)] md:h-[calc(100vh-190px)]"
-                  : (chatHeight === "comfort" ? "h-[740px] md:h-[800px]" : "h-[580px] md:h-[640px]")
-              } transition-all duration-300 shadow-xl overflow-hidden relative`}>
+              {/* Main Document Reader Presentation Area */}
+              <div className="flex-1 min-h-0 flex flex-col h-full overflow-hidden bg-[#17181c] relative">
                 
-                {/* Message scroll list */}
+                {/* Conversation Scroller (Document Reader) */}
                 <div 
-                  className="flex-1 overflow-y-auto space-y-3 pr-1.5 scrollbar-thin" 
                   id="chat-scroller"
-                  style={{ scrollBehavior: 'smooth' }}
+                  onScroll={handleChatScroll}
+                  className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-4 md:px-8 pt-4 pb-4 scrollbar-thin"
+                  style={{ scrollBehavior: 'smooth', overscrollBehavior: 'contain' }}
                 >
-                  {chatMessages.map((msg, index) => (
-                    <div
-                      key={index}
-                      className={`group flex flex-col max-w-[85%] relative ${
-                        msg.sender === "user" ? "ml-auto items-end" : "mr-auto items-start"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 w-full">
-                        {msg.sender === "user" && (
-                          <button
-                            onClick={() => deleteChatMessage(index)}
-                            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-slate-800/80 text-slate-500 hover:text-rose-400 transition-all cursor-pointer flex items-center justify-center shrink-0"
-                            title="Delete message"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        <div
-                          className={`px-3.5 py-2.5 rounded-2xl text-[12px] leading-relaxed shadow-sm ${
-                            msg.sender === "user"
-                              ? "bg-gradient-to-br from-rose-600 to-pink-500 border border-pink-400/20 text-white rounded-br-none"
-                              : "bg-slate-900/80 border border-slate-800 text-purple-100 rounded-bl-none"
-                          }`}
-                        >
-                          {msg.image && (!msg.fileType || msg.fileType.startsWith("image/")) && (
-                            <div className="mb-2 rounded-xl overflow-hidden border border-white/10 max-w-[200px] shadow">
-                              <img referrerPolicy="no-referrer" src={msg.image} alt={msg.fileName || "Media thumbnail"} className="w-full h-auto object-cover" />
-                            </div>
-                          )}
-                          {msg.fileName && msg.fileType && !msg.fileType.startsWith("image/") && (
-                            <div className="mb-2 flex items-center gap-2 bg-slate-950/60 border border-slate-800 rounded-xl p-2.5 max-w-[240px] shadow">
-                              <div className="p-2 rounded-lg bg-indigo-950/50 border border-indigo-500/30 text-indigo-400">
-                                <FileText className="w-5 h-5" />
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="text-[11px] font-semibold text-slate-200 truncate" title={msg.fileName}>{msg.fileName}</p>
-                                <p className="text-[9px] text-slate-500 font-mono uppercase tracking-wider">{msg.fileType.split("/")[1] || "File"}</p>
-                              </div>
-                            </div>
-                          )}
-                          <p className="whitespace-pre-wrap">{msg.content}</p>
+                  <div className="max-w-3xl mx-auto w-full flex flex-col space-y-6">
+                    
+                    {/* Welcome / Starter Questions */}
+                    {chatMessages.length <= 1 && (
+                      <div className="my-6 p-5 rounded-2xl bg-gradient-to-b from-slate-900/60 to-slate-950/80 border border-purple-500/20 shadow-xl text-center">
+                        <div className="w-14 h-14 rounded-2xl bg-purple-950/60 border border-purple-500/30 text-purple-300 flex items-center justify-center mx-auto mb-3 shadow-inner">
+                          <Sparkles className="w-7 h-7 text-purple-400" />
                         </div>
-                        {msg.sender === "bot" && (
-                          <button
-                            onClick={() => deleteChatMessage(index)}
-                            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-slate-800/80 text-slate-500 hover:text-rose-400 transition-all cursor-pointer flex items-center justify-center shrink-0"
-                            title="Delete message"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                        <h3 className="text-lg font-semibold text-slate-100 mb-1">What would you like to explore with Avani?</h3>
+                        <p className="text-xs text-slate-400 mb-4">Ask any question to receive full-screen, structured answers with action tools.</p>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-left">
+                          {[
+                            "Explain how AI language models work in simple terms",
+                            "Write a clean Python script to automate a task",
+                            "What are 5 creative project ideas to build today?",
+                            "What are essential cybersecurity tips for developers?"
+                          ].map((promptText, pIdx) => (
+                            <button
+                              key={pIdx}
+                              type="button"
+                              onClick={() => {
+                                setChatInput(promptText);
+                                sendChatMessage(promptText);
+                              }}
+                              className="p-3.5 rounded-xl bg-slate-900/50 hover:bg-purple-950/40 border border-slate-800 hover:border-purple-600/50 text-xs text-slate-300 hover:text-white transition-all cursor-pointer flex items-center justify-between group shadow-sm"
+                            >
+                              <span className="line-clamp-2 leading-relaxed">{promptText}</span>
+                              <span className="text-slate-500 group-hover:text-purple-400 font-bold text-sm shrink-0 ml-2 transition-colors">→</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Messages Mapping: Document Style */}
+                    {chatMessages.map((msg, index) => (
+                      <div key={index} className="w-full">
+                        {msg.sender === "user" ? (
+                          /* USER QUESTION: Clean soft right bubble */
+                          <div className="flex justify-end w-full group relative mb-4">
+                            <div className="flex items-start gap-2 max-w-[85%] md:max-w-[75%]">
+                              <div className="bg-[#2a2b32] border border-slate-700/60 text-slate-100 px-5 py-3 rounded-[24px] text-[15px] leading-relaxed shadow-sm">
+                                {msg.image && (!msg.fileType || msg.fileType.startsWith("image/")) && (
+                                  <div className="mb-2.5 rounded-xl overflow-hidden border border-white/10 max-w-[280px] shadow">
+                                    <img referrerPolicy="no-referrer" src={msg.image} alt={msg.fileName || "Media thumbnail"} className="w-full h-auto object-cover" />
+                                  </div>
+                                )}
+                                {msg.fileName && msg.fileType && !msg.fileType.startsWith("image/") && (
+                                  <div className="mb-2.5 flex items-center gap-2.5 bg-slate-950/60 border border-slate-800 rounded-xl p-2.5 max-w-[280px] shadow">
+                                    <div className="p-2.5 rounded-lg bg-indigo-950/50 border border-indigo-500/30 text-indigo-400">
+                                      <FileText className="w-6 h-6" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-xs font-semibold text-slate-200 truncate" title={msg.fileName}>{msg.fileName}</p>
+                                      <p className="text-[9px] text-slate-500 font-mono uppercase">{msg.fileType.split("/")[1] || "File"}</p>
+                                    </div>
+                                  </div>
+                                )}
+                                <p className="whitespace-pre-wrap">{msg.content}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          /* BOT RESPONSE: FULL-SCREEN DOCUMENT READER (NO CHAT BUBBLE BOX) */
+                          <div className="w-full text-left text-slate-100 text-[15px] sm:text-[16px] leading-relaxed py-2 select-text group relative mb-4">
+                            {/* Structured Markdown with built-in ChatGPT action bar */}
+                            <MarkdownRenderer 
+                              content={msg.content} 
+                              isBot={true} 
+                              onRegenerate={index === chatMessages.length - 1 ? handleRegenerateResponse : undefined} 
+                            />
+
+                            {/* Related Follow-Up Questions (Gemini / ChatGPT Style) */}
+                            {msg.suggestions && msg.suggestions.length > 0 && (
+                              <div className="mt-4 pt-3 border-t border-slate-800/60 flex flex-col gap-2 w-full">
+                                <div className="flex items-center gap-2 text-xs text-purple-300 font-semibold uppercase tracking-wider">
+                                  <Sparkles className="w-4 h-4 text-purple-400" />
+                                  <span>Related Questions:</span>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {msg.suggestions.map((suggestion, sIdx) => (
+                                    <button
+                                      key={sIdx}
+                                      type="button"
+                                      onClick={() => {
+                                        setChatInput(suggestion);
+                                        sendChatMessage(suggestion);
+                                      }}
+                                      className="text-left text-xs py-1.5 px-3.5 rounded-full bg-slate-900/80 hover:bg-purple-950/60 text-slate-300 hover:text-purple-200 border border-slate-800 hover:border-purple-600/50 transition-all flex items-center gap-2 shadow-sm cursor-pointer group/pill"
+                                      title={`Ask: "${suggestion}"`}
+                                    >
+                                      <span className="text-purple-400 font-bold text-sm group-hover/pill:translate-x-0.5 transition-transform">→</span>
+                                      <span>{suggestion}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Bot timestamp */}
+                            <div className="flex items-center text-[10px] text-slate-500 font-mono mt-2 pt-1 border-t border-slate-800/40">
+                              <span>{msg.timestamp} {msg.isVoiceTemp && "(transcribing...)"}</span>
+                            </div>
+                          </div>
                         )}
                       </div>
-                      <span className="text-[9px] text-slate-500 font-mono mt-0.5 px-1">
-                        {msg.timestamp}
-                        {msg.isVoiceTemp && " (transcribing...)"}
-                      </span>
-                    </div>
-                  ))}
-                  
-                  {/* Loader / Typing animation */}
-                  {isChatLoading && (
-                    <div className="mr-auto items-start flex flex-col max-w-[85%] animate-pulse">
-                      <div className="px-3.5 py-2 rounded-2xl text-[11px] bg-slate-900/60 border border-slate-800 text-slate-400 rounded-bl-none flex items-center gap-1.5">
-                        <RefreshCw className="w-3 h-3 animate-spin text-purple-400" />
-                        <span>
-                          Avani is looking up details...
+                    ))}
+
+                    {/* Loader / Thinking animation (Original spinning animated Sparkles icon) */}
+                    {isChatLoading && (
+                      <div className="w-full py-4 text-left flex items-center gap-3 text-slate-300 animate-pulse">
+                        <div className="w-8 h-8 rounded-full bg-purple-950 border border-purple-500/40 flex items-center justify-center shadow-md">
+                          <Sparkles className="w-4.5 h-4.5 text-purple-400 animate-spin" />
+                        </div>
+                        <span className="text-sm font-medium text-purple-300">
+                          Avani is synthesizing your structured answer...
                         </span>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
-                {/* Camera Stream Preview panel */}
+                {/* Floating Scroll to Bottom Button */}
+                {showScrollDown && (
+                  <button
+                    type="button"
+                    onClick={scrollToBottom}
+                    className="absolute bottom-24 left-1/2 -translate-x-1/2 p-3 bg-slate-800/95 hover:bg-slate-700 text-slate-100 hover:text-white rounded-full shadow-2xl border border-slate-700 z-30 transition-all duration-200 cursor-pointer animate-bounce flex items-center justify-center backdrop-blur"
+                    title="Scroll to bottom"
+                  >
+                    <ArrowDown className="w-6 h-6 text-purple-300" />
+                  </button>
+                )}
+
+                {/* Camera Stream Preview modal */}
                 {isCameraActive && (
-                  <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 mt-2 mb-1 p-1">
+                  <div className="absolute bottom-24 left-4 right-4 max-w-md mx-auto rounded-2xl overflow-hidden border border-purple-500/40 bg-slate-950 p-2 shadow-2xl z-30">
                     <video
                       ref={videoRef}
                       autoPlay
                       playsInline
                       muted
-                      className="w-full h-32 object-cover rounded-lg"
+                      className="w-full h-44 object-cover rounded-xl"
                     />
-                    <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5">
+                    <div className="flex items-center justify-center gap-2.5 mt-2">
                       <button
                         type="button"
                         onClick={captureSnapshot}
-                        className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-full text-[9px] font-semibold flex items-center gap-1 shadow-md transition-all"
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-full text-xs font-semibold flex items-center gap-2 shadow-md transition-all cursor-pointer"
                       >
-                        <Camera className="w-2.5 h-2.5" /> Capture Frame
+                        <Camera className="w-4.5 h-4.5" /> Capture Frame
                       </button>
                       <button
                         type="button"
                         onClick={stopCamera}
-                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-full text-[9px] font-semibold transition-all"
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-full text-xs font-semibold transition-all cursor-pointer"
                       >
                         Cancel
                       </button>
@@ -1736,152 +2033,173 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Snapshot / Upload Attachment Thumbnail */}
-                {capturedImage && !isCameraActive && (
-                  <div className="relative w-fit rounded-xl overflow-hidden border border-purple-500/40 bg-slate-950/80 mt-2 p-1.5 flex items-center gap-2">
-                    {uploadedFileType && !uploadedFileType.startsWith("image/") ? (
-                      <div className="w-12 h-12 rounded-lg bg-indigo-950/50 border border-indigo-500/30 text-indigo-400 flex items-center justify-center shrink-0">
-                        <FileText className="w-6 h-6" />
-                      </div>
-                    ) : (
-                      <img src={capturedImage} alt="Attachment thumbnail" className="w-12 h-12 object-cover rounded-lg shrink-0" />
-                    )}
+                {/* FIXED PROMPT DOCK (ChatGPT Style - Rigidly anchored at bottom, never moves on scroll) */}
+                <div className="w-full shrink-0 bg-[#17181c] border-t border-slate-800/80 px-2 sm:px-4 md:px-6 pt-2 pb-2.5 sm:pb-3.5 z-20 overflow-x-hidden">
+                  <div className="max-w-3xl mx-auto w-full flex flex-col gap-1.5">
                     
-                    {uploadedFileName && (
-                      <div className="pr-4 max-w-[150px] min-w-[80px]">
-                        <p className="text-[10px] text-slate-200 truncate font-semibold leading-tight">{uploadedFileName}</p>
-                        <p className="text-[8px] text-slate-500 font-mono uppercase tracking-wider">{uploadedFileType?.split("/")[1] || "File"}</p>
+                    {/* Attachment Preview thumbnail */}
+                    {capturedImage && !isCameraActive && (
+                      <div className="relative w-fit rounded-xl overflow-hidden border border-purple-500/40 bg-slate-900/90 p-1.5 flex items-center gap-2 shadow-lg mb-1">
+                        {uploadedFileType && !uploadedFileType.startsWith("image/") ? (
+                          <div className="w-10 h-10 rounded-lg bg-indigo-950/50 border border-indigo-500/30 text-indigo-400 flex items-center justify-center shrink-0">
+                            <FileText className="w-5 h-5" />
+                          </div>
+                        ) : (
+                          <img src={capturedImage} alt="Attachment thumbnail" className="w-10 h-10 object-cover rounded-lg shrink-0" />
+                        )}
+                        
+                        {uploadedFileName && (
+                          <div className="pr-4 max-w-[160px] min-w-[80px]">
+                            <p className="text-[11px] text-slate-200 truncate font-semibold leading-tight">{uploadedFileName}</p>
+                            <p className="text-[9px] text-slate-400 font-mono uppercase">{uploadedFileType?.split("/")[1] || "File"}</p>
+                          </div>
+                        )}
+                        
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCapturedImage(null);
+                            setUploadedFileName(null);
+                            setUploadedFileType(null);
+                          }}
+                          className="p-1 rounded-full bg-slate-800 border border-slate-700 text-slate-400 hover:text-white cursor-pointer ml-1"
+                          title="Discard attachment"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
                     )}
-                    
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCapturedImage(null);
-                        setUploadedFileName(null);
-                        setUploadedFileType(null);
-                      }}
-                      className="absolute top-1 right-1 p-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-400 hover:text-white"
-                      title="Discard asset"
-                    >
-                      <X className="w-2.5 h-2.5" />
-                    </button>
-                  </div>
-                )}
 
-
-
-                {/* Toggle panel for Deep Answers & Clear Logs */}
-                <div className="flex items-center mt-2 pt-1 border-t border-slate-800/40">
-                  <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                    {/* Hidden Media Input */}
                     <input
-                      type="checkbox"
-                      checked={deepAnswers}
-                      onChange={(e) => setDeepAnswers(e.target.checked)}
-                      className="sr-only peer"
+                      type="file"
+                      ref={fileInputRef}
+                      accept="image/*,audio/*,video/*,application/pdf,text/*,application/zip,application/x-zip-compressed"
+                      onChange={handleMediaUpload}
+                      className="hidden"
                     />
-                    <div className="relative w-6 h-3.5 bg-slate-950 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-purple-600 peer-checked:after:bg-white" />
-                    <span className="text-[9px] text-slate-400 font-medium peer-checked:text-purple-300 flex items-center gap-1">
-                      <Sparkles className="w-2.5 h-2.5 text-yellow-400" /> Deep & Detailed Answers
-                    </span>
-                  </label>
+
+                    {/* ChatGPT Floating Prompt Input Pill */}
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!chatInput.trim() && !capturedImage) return;
+                        const defaultText = uploadedFileType?.startsWith("image/") 
+                          ? "Check out this image!" 
+                          : `Check out this file: ${uploadedFileName || "attachment"}`;
+                        sendChatMessage(chatInput || defaultText);
+                      }}
+                      className="w-full bg-[#212328] border border-slate-700/80 focus-within:border-purple-500/70 rounded-[28px] py-1.5 px-2 sm:py-2 sm:px-3.5 flex items-center gap-1 sm:gap-2 shadow-2xl backdrop-blur-md transition-all"
+                    >
+                      {/* Plus / Media Menu Button */}
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="p-1.5 sm:p-2 rounded-full text-slate-300 hover:text-white hover:bg-slate-800/80 transition-all cursor-pointer shrink-0"
+                        title="Attach Photo or Document"
+                      >
+                        <Plus className="w-5 h-5 sm:w-5.5 sm:h-5.5" />
+                      </button>
+
+                      {/* Camera Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isCameraActive) {
+                            stopCamera();
+                          } else {
+                            startCamera();
+                          }
+                        }}
+                        className={`p-1.5 sm:p-2 rounded-full transition-all cursor-pointer shrink-0 ${
+                          isCameraActive
+                            ? "bg-purple-950 text-purple-400"
+                            : "text-slate-300 hover:text-white hover:bg-slate-800/80"
+                        }`}
+                        title={isCameraActive ? "Deactivate Camera" : "Open Camera Snapshot"}
+                      >
+                        <Camera className="w-5 h-5 sm:w-5.5 sm:h-5.5" />
+                      </button>
+
+                      {/* Text Input with min-w-0 to prevent flexbox overflow on mobile */}
+                      <input
+                        type="text"
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        placeholder={
+                          isTranscribingSpeech
+                            ? "Transcribing your voice..."
+                            : isListeningSpeech
+                            ? "Listening to you... Speak now"
+                            : capturedImage
+                            ? "Ask about this picture..."
+                            : "Ask Avani anything..."
+                        }
+                        className={`min-w-0 flex-1 bg-transparent border-none text-slate-100 placeholder-slate-400 text-xs sm:text-sm md:text-base focus:outline-none px-1.5 sm:px-2 py-1 ${
+                          isListeningSpeech ? "placeholder-purple-400 font-medium" : ""
+                        }`}
+                      />
+
+                      {/* Speech to Text Microphone */}
+                      <button
+                        type="button"
+                        onClick={isListeningSpeech ? stopSpeechToText : startSpeechToText}
+                        disabled={isTranscribingSpeech}
+                        className={`p-2 rounded-full transition-all cursor-pointer shrink-0 ${
+                          isTranscribingSpeech
+                            ? "bg-purple-950/80 text-purple-400 border border-purple-500/50"
+                            : isListeningSpeech
+                            ? "bg-rose-600 text-white shadow-lg shadow-rose-600/40 animate-pulse border border-rose-400 scale-105"
+                            : "text-slate-300 hover:text-white hover:bg-slate-800/80"
+                        }`}
+                        title={
+                          isTranscribingSpeech
+                            ? "Transcribing..."
+                            : isListeningSpeech
+                            ? "Listening... Click to finish speaking"
+                            : "Voice Typing (Speak into microphone)"
+                        }
+                      >
+                        {isTranscribingSpeech ? (
+                          <Loader2 className="w-5 h-5 sm:w-5.5 sm:h-5.5 animate-spin" />
+                        ) : (
+                          <Mic className={`w-5 h-5 sm:w-5.5 sm:h-5.5 ${isListeningSpeech ? "animate-bounce" : ""}`} />
+                        )}
+                      </button>
+
+                      {/* Send Button */}
+                      {(chatInput.trim() || capturedImage) && (
+                        <button
+                          type="submit"
+                          disabled={isChatLoading}
+                          className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-40 disabled:hover:bg-purple-600 transition-all duration-200 flex items-center justify-center cursor-pointer shadow-md shrink-0 animate-fadeIn"
+                          title="Send question"
+                        >
+                          <Send className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+                        </button>
+                      )}
+                    </form>
+
+                    {/* Disclaimer Footer */}
+                    <p className="text-[10px] text-slate-500 text-center select-none">
+                      Avani can make mistakes. Consider checking important information.
+                    </p>
+                  </div>
                 </div>
-
-                {/* Input section with file selector & voice transcription */}
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (!chatInput.trim() && !capturedImage) return;
-                    const defaultText = uploadedFileType?.startsWith("image/") 
-                      ? "Check out this image!" 
-                      : `Check out this file: ${uploadedFileName || "attachment"}`;
-                    sendChatMessage(chatInput || defaultText);
-                  }}
-                  className="flex items-center gap-1.5 mt-2.5 pt-2 border-t border-slate-800/60"
-                >
-                  {/* Photo upload input & button */}
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    accept="image/*,audio/*,video/*,application/pdf,text/*,application/zip,application/x-zip-compressed"
-                    onChange={handleMediaUpload}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-900 transition-all"
-                    title="Upload Photo / Media"
-                  >
-                    <Paperclip className="w-3.5 h-3.5" />
-                  </button>
-
-                  {/* Camera snapshot button */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isCameraActive) {
-                        stopCamera();
-                      } else {
-                        startCamera();
-                      }
-                    }}
-                    className={`p-2 rounded-xl border transition-all ${
-                      isCameraActive
-                        ? "bg-purple-950/50 border-purple-500/40 text-purple-400"
-                        : "bg-slate-950/80 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-900"
-                    }`}
-                    title={isCameraActive ? "Deactivate camera" : "Activate camera snap"}
-                  >
-                    {isCameraActive ? <CameraOff className="w-3.5 h-3.5" /> : <Camera className="w-3.5 h-3.5" />}
-                  </button>
-
-                  {/* Voice Transcription typing button */}
-                  <button
-                    type="button"
-                    onClick={isListeningSpeech ? stopSpeechToText : startSpeechToText}
-                    className={`p-2 rounded-xl border transition-all ${
-                      isListeningSpeech
-                        ? "bg-red-950/50 border-red-500/40 text-red-400 animate-pulse"
-                        : "bg-slate-950/80 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-900"
-                    }`}
-                    title={isListeningSpeech ? "Stop transcribing" : "Voice transcription typing"}
-                  >
-                    <Mic className="w-3.5 h-3.5" />
-                  </button>
-
-
-
-                  <input
-                    type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder={capturedImage ? "Type your question about this picture..." : "Type your message..."}
-                    className="flex-1 bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500/50"
-                  />
-                  
-                  <button
-                    type="submit"
-                    disabled={(!chatInput.trim() && !capturedImage) || isChatLoading}
-                    className="p-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white transition-all duration-200 disabled:opacity-45 disabled:cursor-not-allowed flex items-center justify-center shadow-lg shadow-purple-950/40"
-                    title="Send message"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                  </button>
-                </form>
               </div>
             </div>
           </div>
         )}
 
-        {/* PERMANENT MEMORY BANK COLLAPSIBLE CARD */}
-        <div className="w-full max-w-sm mt-4 bg-slate-900/40 border border-slate-800/80 rounded-2xl overflow-hidden transition-all duration-300 shadow-xl">
-          <button
-            onClick={() => setShowMemories(!showMemories)}
-            className="w-full flex items-center justify-between px-4 py-3 bg-slate-900/60 hover:bg-slate-900/80 transition-colors text-left"
-          >
-            <div className="flex items-center space-x-2">
-              <Brain className="w-4 h-4 text-purple-400 animate-pulse" />
+        {/* PERMANENT MEMORY BANK COLLAPSIBLE CARD (Only in Voice Mode) */}
+        {appMode === "voice" && (
+          <div className="w-full max-w-sm mt-4 bg-slate-900/40 border border-slate-800/80 rounded-2xl overflow-hidden transition-all duration-300 shadow-xl">
+            <button
+              onClick={() => setShowMemories(!showMemories)}
+              className="w-full flex items-center justify-between px-4 py-3 bg-slate-900/60 hover:bg-slate-900/80 transition-colors text-left"
+            >
+              <div className="flex items-center space-x-2">
+                <Brain className="w-4 h-4 text-purple-400 animate-pulse" />
                 <span className="text-xs font-semibold text-slate-300 font-sans uppercase tracking-wider">
                   Avani's Memory Bank ({memories.length})
                 </span>
@@ -1967,51 +2285,79 @@ export default function App() {
               )}
             </AnimatePresence>
           </div>
+        )}
       </main>
 
-      {/* CONTACT WITH CREATOR PANEL */}
-      <footer className="w-full bg-slate-950/60 border-t border-slate-900/60 backdrop-blur-md px-6 py-5 z-20">
-        <div className="max-w-md mx-auto space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-1.5 text-slate-300 text-xs font-semibold tracking-wide uppercase">
-              <Github className="w-4 h-4 text-purple-400" />
-              <span className="font-sans">CONTACT WITH CREATOR (रचयिता से संपर्क)</span>
+      {/* CONTACT WITH CREATOR PANEL (Only in Voice Mode) */}
+      {appMode === "voice" && !isFullscreen && (
+        <footer className="w-full bg-slate-950/60 border-t border-slate-900/60 backdrop-blur-md px-6 py-5 z-20">
+          <div className="max-w-md mx-auto space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-1.5 text-slate-300 text-xs font-semibold tracking-wide uppercase">
+                <User className="w-4 h-4 text-purple-400" />
+                <span className="font-sans">CONTACT WITH CREATOR (रचयिता से संपर्क)</span>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4 space-y-3.5">
+              <p className="text-xs text-slate-300 leading-relaxed font-sans text-justify">
+                This application is exclusively developed and authenticated by <strong className="text-rose-400">Vinay</strong>. Connect with the creator directly:
+              </p>
+
+              <div className="flex flex-col gap-2.5">
+                {/* Instagram Profile */}
+                <a
+                  href="https://www.instagram.com/mgshankartech_1088"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-pink-950/50 via-purple-950/40 to-slate-900/80 hover:from-pink-900/60 hover:via-purple-900/50 hover:to-slate-900 text-pink-300 border border-pink-500/40 hover:border-pink-400/70 transition-all flex items-center justify-between font-semibold text-xs cursor-pointer shadow-sm group"
+                  title="Click to open Instagram Profile: mgshankartech_1088"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="p-1.5 rounded-lg bg-pink-500/20 text-pink-400 group-hover:bg-pink-500/30 group-hover:scale-110 transition-all flex items-center justify-center">
+                      <Instagram className="w-4 h-4 text-pink-400" />
+                    </span>
+                    <span>Instagram: <strong className="text-white hover:underline">mgshankartech_1088</strong></span>
+                  </div>
+                  <ExternalLink className="w-3.5 h-3.5 text-pink-400/80 group-hover:text-pink-300 group-hover:translate-x-0.5 transition-all shrink-0" />
+                </a>
+
+                {/* Email Address */}
+                <a
+                  href="mailto:mgshankar1088@gmail.com"
+                  className="w-full py-2.5 px-4 rounded-xl bg-slate-950 hover:bg-slate-900 text-slate-300 border border-slate-800 hover:border-purple-600/50 transition-all flex items-center justify-between font-semibold text-xs cursor-pointer group"
+                  title="Click to send email to mgshankar1088@gmail.com"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="p-1.5 rounded-lg bg-purple-500/20 text-purple-400 group-hover:bg-purple-500/30 group-hover:scale-110 transition-all flex items-center justify-center">
+                      <Mail className="w-4 h-4 text-purple-400" />
+                    </span>
+                    <span>Email: <strong className="text-slate-200 hover:underline">mgshankar1088@gmail.com</strong></span>
+                  </div>
+                  <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-purple-400 group-hover:translate-x-0.5 transition-all shrink-0" />
+                </a>
+
+                {/* GitHub Profile */}
+                <a
+                  href="https://github.com/gaurishankar20372-tech"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 px-4 rounded-xl bg-slate-950 hover:bg-slate-900 text-slate-300 border border-slate-800 hover:border-slate-700 transition-all flex items-center justify-between font-semibold text-xs cursor-pointer group"
+                  title="Click to open GitHub Profile: gaurishankar20372-tech"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="p-1.5 rounded-lg bg-slate-800 text-slate-300 group-hover:bg-slate-700 group-hover:scale-110 transition-all flex items-center justify-center">
+                      <Github className="w-4 h-4 text-slate-300" />
+                    </span>
+                    <span>GitHub: <strong className="text-slate-200 hover:underline">gaurishankar20372-tech</strong></span>
+                  </div>
+                  <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300 group-hover:translate-x-0.5 transition-all shrink-0" />
+                </a>
+              </div>
             </div>
           </div>
-
-          <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4 space-y-3.5">
-            <p className="text-xs text-slate-300 leading-relaxed font-sans text-justify">
-              This application is exclusively developed and authenticated by <strong className="text-rose-400">Vinay</strong>. The link below is a <strong className="text-purple-300">read-only verification link</strong> pointing to the public source repository. Other users can only view this repository as absolute proof of original authorship; they cannot modify, delete, or alter anything in your repository.
-            </p>
-
-            <div className="flex flex-col gap-2">
-              <a
-                href="https://github.com/gaurishankar20372-tech/Shruti.ai-.git"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-2.5 px-4 rounded-xl bg-purple-950/40 hover:bg-purple-900/40 text-purple-300 border border-purple-800/50 hover:border-purple-600 transition-all flex items-center justify-center gap-2 font-semibold text-xs cursor-pointer"
-                title="Open GitHub Repository (opens in a new tab)"
-              >
-                <Github className="w-4 h-4 text-purple-400 shrink-0" />
-                <span>Verify Creator on GitHub (Read-Only)</span>
-                <ExternalLink className="w-3.5 h-3.5 text-purple-400 shrink-0 ml-1" />
-              </a>
-
-              <a
-                href="https://github.com/gaurishankar20372-tech"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-2.5 px-4 rounded-xl bg-slate-950 hover:bg-slate-900 text-slate-300 border border-slate-800 hover:border-slate-700 transition-all flex items-center justify-center gap-2 font-semibold text-xs cursor-pointer"
-                title="Open Creator's GitHub Profile (opens in a new tab)"
-              >
-                <User className="w-4 h-4 text-rose-400 shrink-0" />
-                <span>View Creator Profile (Read-Only)</span>
-                <ExternalLink className="w-3.5 h-3.5 text-slate-500 shrink-0 ml-1" />
-              </a>
-            </div>
-          </div>
-        </div>
-      </footer>
+        </footer>
+      )}
 
       {/* DETAILED HELPMENU MODAL (Avani personality & instructions) */}
       <AnimatePresence>
@@ -2148,7 +2494,7 @@ export default function App() {
                     <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">VERIFIED</span>
                   </div>
                   <p className="text-[10.5px] text-slate-400">
-                    The voice/text neural core is secured via immutable system instructions. Attempting to hijack or override her name from "Avani" or her absolute creator "Vinay" is automatically blocked by the kernel.
+                    The voice/text neural core is secured via immutable system instructions. Attempting to hijack or override her name from "Avani" or her absolute creator/founder "Vinay Pratap Shankar (Founder of MG Shankar Tech)" is automatically blocked by the kernel.
                   </p>
                 </div>
 
@@ -2227,6 +2573,131 @@ export default function App() {
               >
                 System Verified
               </button>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* AI'S MEMORY BANK MODAL (Triggered by 3-dot option in corner) */}
+        {showMemoryModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md"
+            onClick={() => setShowMemoryModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 15 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-lg bg-[#1a1c22] border border-slate-700/80 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col max-h-[85vh] overflow-hidden text-left"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-800 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-purple-950/70 border border-purple-500/30 flex items-center justify-center text-purple-300 shadow-inner">
+                    <Brain className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base sm:text-lg font-bold text-slate-100">Avani AI's Memory</h3>
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono bg-purple-950/80 text-purple-300 border border-purple-500/40 font-semibold">
+                        {memories.length} {memories.length === 1 ? "memory" : "memories"}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">Personal details & preferences remembered by Avani across chats.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowMemoryModal(false)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
+                  title="Close Memory Bank"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Memories List */}
+              <div className="flex-1 overflow-y-auto my-4 space-y-2.5 pr-1 scrollbar-thin">
+                {memories.length === 0 ? (
+                  <div className="py-10 text-center text-slate-400 text-xs">
+                    <Brain className="w-10 h-10 text-slate-600 mx-auto mb-2 opacity-50" />
+                    <p className="font-semibold text-slate-300 text-sm">No memories stored yet</p>
+                    <p className="text-xs mt-1 text-slate-500 max-w-xs mx-auto">
+                      Ask Avani AI to remember details during conversation, or type custom instructions below.
+                    </p>
+                  </div>
+                ) : (
+                  memories.map((memory, index) => (
+                    <div
+                      key={index}
+                      className="group flex items-start justify-between p-3.5 rounded-2xl bg-slate-900/70 border border-slate-800/80 hover:border-purple-500/40 transition-all text-xs shadow-sm"
+                    >
+                      <div className="flex items-start gap-3 flex-1 pr-2">
+                        <span className="text-purple-400 font-bold text-sm mt-0.5">✦</span>
+                        <p className="text-slate-200 leading-relaxed break-words text-[13px]">{memory}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMemories((prev) => prev.filter((_, i) => i !== index));
+                          setNotification({
+                            message: `Deleted memory: "${memory.slice(0, 24)}..."`
+                          });
+                        }}
+                        className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800/80 transition-all cursor-pointer shrink-0"
+                        title="Delete memory"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Add Custom Memory Form */}
+              <form onSubmit={handleAddManualFact} className="pt-3 border-t border-slate-800 shrink-0 flex flex-col gap-2">
+                <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                  <span>Teach Avani AI a New Memory:</span>
+                  <span className="text-[10px] text-slate-500 font-normal">Stored locally & injected into prompt</span>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newManualFact}
+                    onChange={(e) => setNewManualFact(e.target.value)}
+                    placeholder="e.g. My name is Alex and I prefer Python solutions..."
+                    className="flex-1 bg-slate-900/90 border border-slate-700/90 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!newManualFact.trim()}
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:hover:bg-purple-600 text-white rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 shadow-md"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add</span>
+                  </button>
+                </div>
+                {memories.length > 0 && (
+                  <div className="flex justify-between items-center pt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm("Are you sure you want to clear all stored memories?")) {
+                          setMemories([]);
+                          setNotification({ message: "Cleared all AI memories." });
+                        }
+                      }}
+                      className="text-xs text-rose-400 hover:text-rose-300 hover:underline cursor-pointer"
+                    >
+                      Clear all memories
+                    </button>
+                    <span className="text-[11px] text-emerald-400 font-medium">✓ Active in prompts</span>
+                  </div>
+                )}
+              </form>
             </motion.div>
           </motion.div>
         )}
