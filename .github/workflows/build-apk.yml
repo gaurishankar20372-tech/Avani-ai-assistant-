@@ -50,6 +50,21 @@ jobs:
         run: |
           echo "android.useAndroidX=true" >> android/gradle.properties
           echo "android.enableJetifier=true" >> android/gradle.properties
+          cat << 'EOF' >> android/build.gradle
+
+          subprojects {
+              configurations.all {
+                  resolutionStrategy {
+                      eachDependency { DependencyResolveDetails details ->
+                          if (details.requested.group == 'org.jetbrains.kotlin' && 
+                             (details.requested.name == 'kotlin-stdlib-jdk7' || details.requested.name == 'kotlin-stdlib-jdk8')) {
+                              details.useTarget("org.jetbrains.kotlin:kotlin-stdlib:${details.requested.version}")
+                          }
+                      }
+                  }
+              }
+          }
+          EOF
 
       - name: Build APK
         working-directory: android
