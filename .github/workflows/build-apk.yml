@@ -46,6 +46,11 @@ jobs:
       - name: Sync Android
         run: npx cap sync android
 
+      - name: Fix Kotlin Duplicate Classes
+        run: |
+          echo "android.useAndroidX=true" >> android/gradle.properties
+          echo "android.enableJetifier=true" >> android/gradle.properties
+
       - name: Build APK
         working-directory: android
         run: ./gradlew assembleDebug
