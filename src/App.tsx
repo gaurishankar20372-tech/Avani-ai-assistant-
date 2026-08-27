@@ -747,15 +747,16 @@ export default function App() {
   const [toolLogs, setToolLogs] = useState<ToolLog[]>([]);
   const [showHelp, setShowHelp] = useState(false);
   const [showSecurity, setShowSecurity] = useState(false);
+  const DEFAULT_BACKEND = "https://avani-ai-zo2a.onrender.com";
   const [backendUrl, setBackendUrl] = useState<string>(() => {
-    return localStorage.getItem("avani_backend_url") || "https://avani-ai-zo2a.onrender.com";
+    return localStorage.getItem("backend_url") || localStorage.getItem("avani_backend_url") || DEFAULT_BACKEND;
   });
 
   const getBackendUrl = (): string => {
     if (backendUrl) return backendUrl.trim().replace(/\/$/, "");
     const envUrl = (import.meta as any).env?.VITE_BACKEND_URL;
     if (envUrl) return envUrl.trim().replace(/\/$/, "");
-    return "https://avani-ai-zo2a.onrender.com";
+    return DEFAULT_BACKEND;
   };
 
   const [notification, setNotification] = useState<{ message: string; url?: string } | null>(null);
@@ -2542,11 +2543,13 @@ export default function App() {
                             cleaned = "https://" + cleaned;
                             setBackendUrl(cleaned);
                           }
+                          localStorage.setItem("backend_url", cleaned);
                           localStorage.setItem("avani_backend_url", cleaned);
                           setNotification({
                             message: "Secure server connection bridge saved and verified!",
                           });
                         } else {
+                          localStorage.removeItem("backend_url");
                           localStorage.removeItem("avani_backend_url");
                           setNotification({
                             message: "Reset connection to relative API server paths.",
@@ -2562,6 +2565,7 @@ export default function App() {
                       type="button"
                       onClick={() => {
                         setBackendUrl("");
+                        localStorage.removeItem("backend_url");
                         localStorage.removeItem("avani_backend_url");
                         setNotification({
                           message: "Connection URL cleared. Reverted to standard relative paths.",
