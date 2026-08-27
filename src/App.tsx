@@ -588,11 +588,26 @@ export default function App() {
               const base64Audio = typeof reader.result === "string" ? reader.result : "";
               if (base64Audio) {
                 try {
-                  const res = await fetch("/api/transcribe", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ audioData: base64Audio, mimeType: recorder.mimeType || "audio/webm" })
-                  });
+                  const base = getBackendUrl();
+                  const url = base ? `${base}/api/transcribe` : "/api/transcribe";
+                  let res: Response;
+                  try {
+                    res = await fetch(url, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ audioData: base64Audio, mimeType: recorder.mimeType || "audio/webm" })
+                    });
+                  } catch (fetchErr) {
+                    if (base) {
+                      res = await fetch("/api/transcribe", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ audioData: base64Audio, mimeType: recorder.mimeType || "audio/webm" })
+                      });
+                    } else {
+                      throw fetchErr;
+                    }
+                  }
                   if (res.ok) {
                     const data = await res.json();
                     if (data.success && data.text && data.text.trim()) {
@@ -733,14 +748,14 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [showSecurity, setShowSecurity] = useState(false);
   const [backendUrl, setBackendUrl] = useState<string>(() => {
-    return localStorage.getItem("avani_backend_url") || "";
+    return localStorage.getItem("avani_backend_url") || "https://avani-ai-zo2a.onrender.com";
   });
 
   const getBackendUrl = (): string => {
     if (backendUrl) return backendUrl.trim().replace(/\/$/, "");
     const envUrl = (import.meta as any).env?.VITE_BACKEND_URL;
     if (envUrl) return envUrl.trim().replace(/\/$/, "");
-    return "";
+    return "https://avani-ai-zo2a.onrender.com";
   };
 
   const [notification, setNotification] = useState<{ message: string; url?: string } | null>(null);
@@ -2512,7 +2527,7 @@ export default function App() {
                       type="text"
                       value={backendUrl}
                       onChange={(e) => setBackendUrl(e.target.value)}
-                      placeholder="e.g., https://your-app.run.app"
+                      placeholder="https://avani-ai-zo2a.onrender.com"
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 font-mono focus:outline-none focus:border-emerald-500/50 placeholder-slate-600"
                     />
                   </div>
