@@ -276,6 +276,11 @@ async function startServer() {
     throw lastError || new Error("All Gemini model fallbacks exhausted due to high demand.");
   };
 
+  // Lightweight health & wake-up endpoint
+  app.get("/api/ping", (_req, res) => {
+    res.json({ ok: true, status: "live", timestamp: Date.now() });
+  });
+
   // Text-based chat endpoint for Chat Mode
   app.post("/api/chat", async (req, res) => {
     try {
@@ -459,10 +464,8 @@ CORE CAPABILITIES & RESPONSE FORMATTING:
     }
 
     try {
-      // Connect to Gemini Live
-      session = await ai.live.connect({
-        model: "gemini-3.1-flash-live-preview",
-        config: {
+      // Configure Gemini Live Session
+      const liveConfig: any = {
           responseModalities: [Modality.AUDIO],
           outputAudioTranscription: {},
           inputAudioTranscription: {},
@@ -586,8 +589,9 @@ ${initialMemories.length > 0 ? `\nYour current permanent memories of this user:\
               ]
             }
           ]
-        },
-        callbacks: {
+        };
+
+        const liveCallbacks = {
           onmessage: async (message: LiveServerMessage) => {
             // Forward Gemini messages to the client
             // 1. Audio chunks
@@ -644,8 +648,22 @@ ${initialMemories.length > 0 ? `\nYour current permanent memories of this user:\
               clientWs.send(JSON.stringify({ type: "error", error: errMsg }));
             }
           }
+        };
+
+        try {
+          session = await ai.live.connect({
+            model: "gemini-3.8-live",
+            config: liveConfig,
+            callbacks: liveCallbacks
+          });
+        } catch (liveModelErr) {
+          console.warn("Primary live model gemini-3.8-live failed, failing over to gemini-3.1-flash-live-preview:", liveModelErr);
+          session = await ai.live.connect({
+            model: "gemini-3.1-flash-live-preview",
+            config: liveConfig,
+            callbacks: liveCallbacks
+          });
         }
-      });
 
       console.log("Connected to Gemini Live Session successfully!");
       if (clientWs.readyState === 1) {

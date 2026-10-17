@@ -803,20 +803,103 @@ export default function App() {
     localStorage.setItem("avani_memories", JSON.stringify(memories));
   }, [memories]);
 
-  // Auto-scroll chat to bottom when messages update
+  const prevMessagesLengthRef = useRef(chatMessages.length);
+
+  // Helper to compute exact static offset of an element inside chat-scroller container
+  const getScrollerOffsetTop = (el: HTMLElement, container: HTMLElement): number => {
+    let top = 0;
+    let curr: HTMLElement | null = el;
+    while (curr && curr !== container) {
+      top += curr.offsetTop;
+      curr = curr.offsetParent as HTMLElement | null;
+    }
+    return top;
+  };
+
+  // Auto-scroll chat behavior:
+  // - When AI gives an answer (bot message), start immediately at the BEGINNING (top) of the AI answer
+  //   and keep it locked to the beginning as markdown expands, instead of jumping to the bottom!
+  // - When user sends a message, scroll to the bottom to display their query & the thinking indicator.
   useEffect(() => {
-    if (appMode === "chat") {
+    if (appMode !== "chat" || chatMessages.length === 0) return;
+
+    const scroller = document.getElementById("chat-scroller");
+    if (!scroller) return;
+
+    const prevLength = prevMessagesLengthRef.current;
+    prevMessagesLengthRef.current = chatMessages.length;
+
+    // Avoid scrolling on initial mount when only default greeting exists
+    if (prevLength === 0 && chatMessages.length === 1) return;
+
+    const lastMsgIndex = chatMessages.length - 1;
+    const lastMsg = chatMessages[lastMsgIndex];
+
+    if (lastMsg.sender === "bot") {
+      let userInteracted = false;
+      const onUserInteraction = () => {
+        userInteracted = true;
+      };
+
+      scroller.addEventListener("wheel", onUserInteraction, { passive: true, once: true });
+      scroller.addEventListener("touchmove", onUserInteraction, { passive: true, once: true });
+
+      const scrollToBotStart = (instant = false) => {
+        if (userInteracted) return;
+        const botEl = document.getElementById(`chat-msg-${lastMsgIndex}`);
+        if (!botEl || !scroller) return;
+
+        const targetTop = Math.max(0, getScrollerOffsetTop(botEl, scroller) - 16);
+        scroller.scrollTo({
+          top: targetTop,
+          behavior: instant ? "auto" : "smooth"
+        });
+      };
+
+      // 1. Immediately position to the beginning of the answer on mount (instant zero-delay)
+      scrollToBotStart(true);
+
+      // 2. Multi-phase reinforcement as MarkdownRenderer parses, formats, and expands height
+      const t1 = setTimeout(() => scrollToBotStart(false), 50);
+      const t2 = setTimeout(() => scrollToBotStart(false), 150);
+      const t3 = setTimeout(() => scrollToBotStart(false), 350);
+      const t4 = setTimeout(() => scrollToBotStart(false), 700);
+
+      return () => {
+        scroller.removeEventListener("wheel", onUserInteraction);
+        scroller.removeEventListener("touchmove", onUserInteraction);
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+        clearTimeout(t4);
+      };
+    } else {
+      // User sent a message: scroll to bottom to show user's query and the loader
+      const timer = setTimeout(() => {
+        scroller.scrollTo({
+          top: scroller.scrollHeight,
+          behavior: "smooth"
+        });
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [chatMessages, appMode]);
+
+  // When chat starts loading, ensure the user sees the thinking indicator
+  useEffect(() => {
+    if (appMode === "chat" && isChatLoading) {
       const scroller = document.getElementById("chat-scroller");
       if (scroller) {
-        setTimeout(() => {
+        const timer = setTimeout(() => {
           scroller.scrollTo({
             top: scroller.scrollHeight,
             behavior: "smooth"
           });
-        }, 80);
+        }, 50);
+        return () => clearTimeout(timer);
       }
     }
-  }, [chatMessages, appMode]);
+  }, [isChatLoading, appMode]);
 
   const handleChatScroll = () => {
     const scroller = document.getElementById("chat-scroller");
@@ -846,6 +929,7 @@ export default function App() {
   const audioRecorderRef = useRef<AudioRecorder | null>(null);
   const audioPlayerRef = useRef<AudioPlayer | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const handshakeTimeoutRef = useRef<any>(null);
 
   // Determine Avani's current active visual state
   const getAvaniState = (): "idle" | "connecting" | "listening" | "speaking" => {
@@ -867,8 +951,12 @@ export default function App() {
     }
   }, [notification]);
 
-  // Clean up on unmount
+  // Clean up on unmount and wake-up ping remote server
   useEffect(() => {
+    const base = getBackendUrl();
+    if (base && !base.includes(window.location.host)) {
+      fetch(`${base}/api/ping`).catch(() => {});
+    }
     return () => {
       disconnectSession();
     };
@@ -888,182 +976,263 @@ export default function App() {
       player.start();
       audioPlayerRef.current = player;
 
-      // 2. Establish WebSocket connection to backend live proxy
-      const base = getBackendUrl();
-      let wsUrl = "";
-      if (base) {
-        const wsBase = base.replace(/^http/, "ws");
-        wsUrl = `${wsBase}/api/live-ws?memories=${encodeURIComponent(JSON.stringify(memories))}`;
+      // 2. Establish WebSocket connection with smart candidate failover
+      const memoriesParam = encodeURIComponent(JSON.stringify(memories));
+      const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+
+      const localWsUrl = (window.location.host && window.location.protocol.startsWith("http"))
+        ? `${wsProtocol}//${window.location.host}/api/live-ws?memories=${memoriesParam}`
+        : null;
+
+      const remoteBase = getBackendUrl();
+      const remoteWsUrl = remoteBase
+        ? `${remoteBase.replace(/^http/, "ws")}/api/live-ws?memories=${memoriesParam}`
+        : null;
+
+      const candidates: string[] = [];
+      const hasCustomSaved = localStorage.getItem("backend_url") && localStorage.getItem("backend_url") !== DEFAULT_BACKEND;
+      const isStaticOrMobile = 
+        window.location.hostname.endsWith("github.io") || 
+        window.location.hostname.endsWith("vercel.app") || 
+        window.location.protocol === "file:" || 
+        window.location.protocol === "capacitor:" ||
+        (window.location.hostname === "localhost" && !window.location.port);
+
+      if (hasCustomSaved && remoteWsUrl) {
+        candidates.push(remoteWsUrl);
+        if (localWsUrl && !candidates.includes(localWsUrl)) candidates.push(localWsUrl);
+      } else if (!isStaticOrMobile && localWsUrl) {
+        // Fullstack web environment (AI Studio Cloud Run, local node server) -> local is first, remote is backup
+        candidates.push(localWsUrl);
+        if (remoteWsUrl && !candidates.includes(remoteWsUrl)) candidates.push(remoteWsUrl);
       } else {
-        const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        wsUrl = `${wsProtocol}//${window.location.host}/api/live-ws?memories=${encodeURIComponent(JSON.stringify(memories))}`;
+        // Mobile APK or static web deployment -> remote is first, local is backup
+        if (remoteWsUrl) candidates.push(remoteWsUrl);
+        if (localWsUrl && !candidates.includes(localWsUrl)) candidates.push(localWsUrl);
       }
-      
-      console.log("Connecting to Live Proxy via", wsUrl);
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
 
-      ws.onopen = () => {
-        console.log("WebSocket connected to Express proxy");
-      };
+      if (candidates.length === 0 && localWsUrl) {
+        candidates.push(localWsUrl);
+      }
 
-      ws.onmessage = async (event) => {
+      let sessionEstablished = false;
+      let isCleanedUp = false;
+
+      const tryConnectCandidate = (index: number) => {
+        if (isCleanedUp) return;
+
+        if (index >= candidates.length) {
+          if (!sessionEstablished) {
+            console.warn("[Avani] All candidate live-ws endpoints failed to connect.");
+            setErrorMessage("Unable to establish live voice connection. Please check connection or switch to Chat Mode.");
+            setConnectionStatus("error");
+            setIsPowerOn(false);
+          }
+          return;
+        }
+
+        const currentTarget = candidates[index];
+        console.log(`[Avani] Establishing live session via bridge (${index + 1}/${candidates.length}):`, currentTarget);
+
+        // Ping remote server if it's the remote target to wake it up if sleeping
+        if (remoteBase && currentTarget.includes("onrender.com")) {
+          fetch(`${remoteBase}/api/ping`).catch(() => {});
+        }
+
+        let socket: WebSocket;
         try {
-          let rawData = event.data;
-          if (rawData instanceof Blob) {
-            rawData = await rawData.text();
-          } else if (rawData instanceof ArrayBuffer) {
-            rawData = new TextDecoder().decode(rawData);
-          }
+          socket = new WebSocket(currentTarget);
+          wsRef.current = socket;
+        } catch (initErr) {
+          console.warn(`[Avani] Immediate failure initializing WebSocket for ${currentTarget}:`, initErr);
+          tryConnectCandidate(index + 1);
+          return;
+        }
 
-          if (typeof rawData !== "string") {
-            return;
+        // Set a 5-second handshake timeout in case remote instance is sleeping/stalled
+        if (handshakeTimeoutRef.current) clearTimeout(handshakeTimeoutRef.current);
+        handshakeTimeoutRef.current = setTimeout(() => {
+          if (!sessionEstablished && !isCleanedUp && wsRef.current === socket) {
+            console.warn(`[Avani] Connection timed out on ${currentTarget}. Trying fallback bridge...`);
+            try { socket.close(); } catch {}
+            tryConnectCandidate(index + 1);
           }
+        }, 5000);
 
-          // Check if data is plain text error or non-JSON
-          let msg: any = null;
+        socket.onopen = () => {
+          console.log(`[Avani] WebSocket connected to bridge: ${currentTarget}`);
+        };
+
+        socket.onerror = () => {
+          if (!sessionEstablished && !isCleanedUp) {
+            console.warn(`[Avani] Handshake failed on ${currentTarget}, attempting next available bridge...`);
+            if (handshakeTimeoutRef.current) clearTimeout(handshakeTimeoutRef.current);
+            try { socket.close(); } catch {}
+            tryConnectCandidate(index + 1);
+          }
+        };
+
+        socket.onclose = () => {
+          if (!sessionEstablished && !isCleanedUp) {
+            if (handshakeTimeoutRef.current) clearTimeout(handshakeTimeoutRef.current);
+            tryConnectCandidate(index + 1);
+          } else if (sessionEstablished) {
+            console.log("[Avani] Live session WebSocket closed");
+            setConnectionStatus("disconnected");
+            setIsPowerOn(false);
+          }
+        };
+
+        socket.onmessage = async (event) => {
           try {
-            msg = JSON.parse(rawData);
-          } catch {
-            if (rawData.toLowerCase().includes("permission") || rawData.toLowerCase().includes("denied") || rawData.toLowerCase().includes("error")) {
-              setErrorMessage(rawData);
-              setConnectionStatus("error");
+            let rawData = event.data;
+            if (rawData instanceof Blob) {
+              rawData = await rawData.text();
+            } else if (rawData instanceof ArrayBuffer) {
+              rawData = new TextDecoder().decode(rawData);
             }
-            return;
-          }
 
-          if (!msg || typeof msg !== "object") return;
+            if (typeof rawData !== "string") {
+              return;
+            }
 
-          // Handle WebSocket events
-          if (msg.type === "status" && msg.status === "connected") {
-            setConnectionStatus("connected");
-            
-            // 3. Connection is ready! Initialize & Start Microphone Capture
-            const recorder = new AudioRecorder((base64Audio) => {
-              // Only stream microphone data if connection is fully open and we aren't muted
-              if (ws.readyState === WebSocket.OPEN && !isMuted) {
-                ws.send(JSON.stringify({ type: "audio", data: base64Audio }));
+            // Check if data is plain text error or non-JSON
+            let msg: any = null;
+            try {
+              msg = JSON.parse(rawData);
+            } catch {
+              if (rawData.toLowerCase().includes("permission") || rawData.toLowerCase().includes("denied") || rawData.toLowerCase().includes("error")) {
+                setErrorMessage(rawData);
+                setConnectionStatus("error");
               }
-            });
-            await recorder.start();
-            audioRecorderRef.current = recorder;
-          }
-
-          if (msg.type === "audio" && msg.data) {
-            // Unpack and play voice chunks from Gemini
-            if (!isMuted && audioPlayerRef.current) {
-              audioPlayerRef.current.playChunk(msg.data);
+              return;
             }
-          }
 
-          if (msg.type === "transcription" && msg.data) {
-            const isUser = msg.source === "user";
-            const chunk = String(msg.data).trim();
-            if (!chunk) return;
+            if (!msg || typeof msg !== "object") return;
 
-            // If this is a bot voice transcription arriving after switchToChatMode, suppress repeating the written answer
-            if (!isUser && lastWrittenAnswerRef.current) {
-              const { text: writtenText, timestamp } = lastWrittenAnswerRef.current;
-              if (Date.now() - timestamp < 30000) {
-                const lowerChunk = chunk.toLowerCase();
-                if (
-                  writtenText.includes(lowerChunk) || 
-                  lowerChunk.includes(writtenText) || 
-                  (lowerChunk.length > 15 && writtenText.startsWith(lowerChunk.slice(0, 15)))
-                ) {
-                  return;
+            // Handle WebSocket events
+            if (msg.type === "status" && msg.status === "connected") {
+              sessionEstablished = true;
+              if (handshakeTimeoutRef.current) clearTimeout(handshakeTimeoutRef.current);
+              setConnectionStatus("connected");
+
+              // 3. Connection is ready! Initialize & Start Microphone Capture
+              const recorder = new AudioRecorder((base64Audio) => {
+                // Only stream microphone data if connection is fully open and we aren't muted
+                if (socket.readyState === WebSocket.OPEN && !isMuted) {
+                  socket.send(JSON.stringify({ type: "audio", data: base64Audio }));
                 }
+              });
+              await recorder.start();
+              audioRecorderRef.current = recorder;
+            }
+
+            if (msg.type === "audio" && msg.data) {
+              // Unpack and play voice chunks from Gemini
+              if (!isMuted && audioPlayerRef.current) {
+                audioPlayerRef.current.playChunk(msg.data);
               }
             }
 
-            updateChatMessagesAndSync((prev) => {
-              const last = prev[prev.length - 1];
-              // If the last message belongs to the same sender and is a voice temp chunk, update it.
-              if (last && last.sender === (isUser ? "user" : "bot") && last.isVoiceTemp) {
-                if (last.content.endsWith(chunk) || last.content.includes(chunk)) {
-                  return prev;
+            if (msg.type === "transcription" && msg.data) {
+              const isUser = msg.source === "user";
+              const chunk = String(msg.data).trim();
+              if (!chunk) return;
+
+              // If this is a bot voice transcription arriving after switchToChatMode, suppress repeating the written answer
+              if (!isUser && lastWrittenAnswerRef.current) {
+                const { text: writtenText, timestamp } = lastWrittenAnswerRef.current;
+                if (Date.now() - timestamp < 30000) {
+                  const lowerChunk = chunk.toLowerCase();
+                  if (
+                    writtenText.includes(lowerChunk) || 
+                    lowerChunk.includes(writtenText) || 
+                    (lowerChunk.length > 15 && writtenText.startsWith(lowerChunk.slice(0, 15)))
+                  ) {
+                    return;
+                  }
                 }
-                return [
-                  ...prev.slice(0, -1),
-                  { ...last, content: last.content + " " + chunk }
-                ];
-              } else {
-                // If it's a bot message, check if the last message from bot already has this text
-                if (!isUser && last && last.sender === "bot") {
-                  const lastNorm = last.content.trim().toLowerCase();
-                  const chunkNorm = chunk.toLowerCase();
-                  if (lastNorm === chunkNorm || lastNorm.includes(chunkNorm) || (chunkNorm.length > 20 && lastNorm.startsWith(chunkNorm.slice(0, 20)))) {
+              }
+
+              updateChatMessagesAndSync((prev) => {
+                const last = prev[prev.length - 1];
+                // If the last message belongs to the same sender and is a voice temp chunk, update it.
+                if (last && last.sender === (isUser ? "user" : "bot") && last.isVoiceTemp) {
+                  if (last.content.endsWith(chunk) || last.content.includes(chunk)) {
                     return prev;
                   }
-                }
-                // Otherwise start a new voice-temp message card
-                return [
-                  ...prev,
-                  {
-                    sender: isUser ? "user" : "bot",
-                    content: chunk,
-                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    isVoiceTemp: true
+                  return [
+                    ...prev.slice(0, -1),
+                    { ...last, content: last.content + " " + chunk }
+                  ];
+                } else {
+                  // If it's a bot message, check if the last message from bot already has this text
+                  if (!isUser && last && last.sender === "bot") {
+                    const lastNorm = last.content.trim().toLowerCase();
+                    const chunkNorm = chunk.toLowerCase();
+                    if (lastNorm === chunkNorm || lastNorm.includes(chunkNorm) || (chunkNorm.length > 20 && lastNorm.startsWith(chunkNorm.slice(0, 20)))) {
+                      return prev;
+                    }
                   }
-                ];
-              }
-            });
-          }
-
-          if (msg.type === "turnComplete") {
-            updateChatMessagesAndSync((prev) => prev.map(m => m.isVoiceTemp ? { ...m, isVoiceTemp: false } : m));
-          }
-
-          if (msg.type === "interrupted") {
-            console.log("Avani was interrupted by user speech.");
-            if (audioPlayerRef.current) {
-              audioPlayerRef.current.clearQueue();
+                  // Otherwise start a new voice-temp message card
+                  return [
+                    ...prev,
+                    {
+                      sender: isUser ? "user" : "bot",
+                      content: chunk,
+                      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                      isVoiceTemp: true
+                    }
+                  ];
+                }
+              });
             }
-            setModelSpeaking(false);
-            
-            // Mark the model's interrupted voice turn as finalized and append interruption indicator
-            updateChatMessagesAndSync((prev) => {
-              const last = prev[prev.length - 1];
-              if (last && last.sender === "bot" && last.isVoiceTemp) {
-                return [
-                  ...prev.slice(0, -1),
-                  { ...last, content: last.content + " ... (interrupted)", isVoiceTemp: false }
-                ];
+
+            if (msg.type === "turnComplete") {
+              updateChatMessagesAndSync((prev) => prev.map(m => m.isVoiceTemp ? { ...m, isVoiceTemp: false } : m));
+            }
+
+            if (msg.type === "interrupted") {
+              console.log("Avani was interrupted by user speech.");
+              if (audioPlayerRef.current) {
+                audioPlayerRef.current.clearQueue();
               }
-              return prev;
-            });
-          }
+              setModelSpeaking(false);
 
-          if (msg.type === "toolCall" && msg.toolCall) {
-            handleToolCall(msg.toolCall);
-          }
+              // Mark the model's interrupted voice turn as finalized and append interruption indicator
+              updateChatMessagesAndSync((prev) => {
+                const last = prev[prev.length - 1];
+                if (last && last.sender === "bot" && last.isVoiceTemp) {
+                  return [
+                    ...prev.slice(0, -1),
+                    { ...last, content: last.content + " ... (interrupted)", isVoiceTemp: false }
+                  ];
+                }
+                return prev;
+              });
+            }
 
-          if (msg.type === "session_closed") {
-            console.log("Session was closed by server.");
-            disconnectSession();
-          }
+            if (msg.type === "toolCall" && msg.toolCall) {
+              handleToolCall(msg.toolCall);
+            }
 
-          if (msg.type === "error") {
-            setErrorMessage(msg.error || "A connection error occurred.");
-            setConnectionStatus("error");
-          }
+            if (msg.type === "session_closed") {
+              console.log("Session was closed by server.");
+              disconnectSession();
+            }
 
-        } catch (err: any) {
-          console.error("Error parsing WebSocket message:", err);
-        }
+            if (msg.type === "error") {
+              setErrorMessage(msg.error || "A connection error occurred.");
+              setConnectionStatus("error");
+            }
+
+          } catch (err: any) {
+            console.error("Error parsing WebSocket message:", err);
+          }
+        };
       };
 
-      ws.onerror = (err) => {
-        console.error("WebSocket connection error:", err);
-        setErrorMessage("Unable to establish server bridge. Verify backend execution.");
-        setConnectionStatus("error");
-      };
-
-      ws.onclose = () => {
-        console.log("WebSocket connection closed");
-        setConnectionStatus("disconnected");
-        setIsPowerOn(false);
-      };
+      tryConnectCandidate(0);
 
     } catch (err: any) {
       console.error("Initialization failed:", err);
@@ -1075,6 +1244,10 @@ export default function App() {
 
   // Stop current active session completely
   const disconnectSession = () => {
+    if (handshakeTimeoutRef.current) {
+      clearTimeout(handshakeTimeoutRef.current);
+      handshakeTimeoutRef.current = null;
+    }
     // Stop recording and player
     if (audioRecorderRef.current) {
       audioRecorderRef.current.stop();
@@ -1085,7 +1258,9 @@ export default function App() {
       audioPlayerRef.current = null;
     }
     if (wsRef.current) {
-      wsRef.current.close();
+      try {
+        wsRef.current.close();
+      } catch {}
       wsRef.current = null;
     }
 
@@ -1882,8 +2057,8 @@ export default function App() {
                 <div 
                   id="chat-scroller"
                   onScroll={handleChatScroll}
-                  className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-4 md:px-8 pt-4 pb-4 scrollbar-thin"
-                  style={{ scrollBehavior: 'smooth', overscrollBehavior: 'contain' }}
+                  className="relative flex-1 min-h-0 overflow-y-auto px-3 sm:px-4 md:px-8 pt-4 pb-4 scrollbar-thin"
+                  style={{ overscrollBehavior: 'contain', overflowAnchor: 'none' }}
                 >
                   <div className="max-w-3xl mx-auto w-full flex flex-col space-y-6">
                     
@@ -1922,7 +2097,7 @@ export default function App() {
 
                     {/* Messages Mapping: Document Style */}
                     {chatMessages.map((msg, index) => (
-                      <div key={index} className="w-full">
+                      <div key={index} id={`chat-msg-${index}`} data-sender={msg.sender} className="w-full">
                         {msg.sender === "user" ? (
                           /* USER QUESTION: Clean soft right bubble */
                           <div className="flex justify-end w-full group relative mb-4">
