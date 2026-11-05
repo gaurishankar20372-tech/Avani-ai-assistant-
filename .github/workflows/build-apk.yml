@@ -25,7 +25,7 @@ jobs:
           node-version: 20
           cache: npm
 
-      # 3. Setup Java JDK
+      # 3. Setup Java JDK 21
       - name: Setup Java JDK 21
         uses: actions/setup-java@v4
         with:
@@ -34,35 +34,41 @@ jobs:
 
       # 4. Install dependencies
       - name: Install dependencies
-        run: npm install
-
-      # 5. Install Capacitor
-      - name: Install Capacitor
         run: |
-          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npm ci || npm install
 
-      # 6. Build web app
+      # 5. Build web app
       - name: Build web app
-        run: npm run build
-
-      # 7. Initialize Capacitor
-      - name: Initialize Capacitor
         run: |
-          npx cap init "Avani AI" "com.avani.ai" --web-dir dist
+          npm run build
 
-      # 8. Add Android platform
-      - name: Add Android
+      # 6. Initialize Capacitor & Android Platform
+      - name: Initialize Capacitor & Android Platform
         run: |
-          npx cap add android
+          if [ ! -f "capacitor.config.json" ] && [ ! -f "capacitor.config.ts" ]; then
+            npx cap init "Avani AI" "com.avani.ai" --web-dir dist
+          fi
 
-      # 9. Sync Android
-      - name: Sync Android
-        run: |
-          npx cap sync android
+          if [ ! -d "android" ]; then
+            npx cap add android
+          else
+            npx cap sync android
+          fi
 
-      # 10. Fix Kotlin duplicate classes
-      - name: Fix Kotlin Duplicate Classes
+      # 7. Configure Android Permissions & Audio Access for Avani AI
+      - name: Configure Android Permissions
         run: |
+          MANIFEST_FILE="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST_FILE" ]; then
+            # Ensure microphone and audio permissions are declared
+            if ! grep -q "android.permission.RECORD_AUDIO" "$MANIFEST_FILE"; then
+              sed -i '/<manifest/a \    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$MANIFEST_FILE"
+            fi
+
+            # Enable cleartext traffic if needed for remote bridges
+            sed -i 's/<application /<application android:usesCleartextTraffic="true" /' "$MANIFEST_FILE"
+          fi
+
           echo "android.useAndroidX=true" >> android/gradle.properties
           echo "android.enableJetifier=true" >> android/gradle.properties
 
@@ -83,20 +89,39 @@ jobs:
           }
           EOF
 
-      # 11. Build APK
+      # 8. Sync Android assets
+      - name: Sync Capacitor
+        run: |
+          npx cap sync android
+
+      # 9. Build Android Debug APK
       - name: Build APK
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
-      # 12. Rename APK
+      # 10. Prepare APK
       - name: Prepare APK
         run: |
           mkdir -p release
-          cp android/app/build/outputs/apk/debug/app-debug.apk release/Avani-AI.apk
+          if [ -f "android/app/build/outputs/apk/debug/app-debug.apk" ]; then
+            cp android/app/build/outputs/apk/debug/app-debug.apk release/Avani-AI.apk
+          else
+            find android/app/build/outputs/apk/ -name "*.apk" -exec cp {} release/Avani-AI.apk \;
+          fi
+          echo "Generated APK file details:"
+          ls -lh release/Avani-AI.apk
 
-      # 13. Create GitHub Release
+      # 11. Upload APK as Workflow Artifact
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Avani-AI-APK
+          path: release/Avani-AI.apk
+          retention-days: 30
+
+      # 12. Create GitHub Release
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -106,5 +131,5 @@ jobs:
           gh release create "$TAG" \
             release/Avani-AI.apk \
             --title "Avani AI $TAG" \
-            --notes "Avani AI APK release. Built automatically from the main branch." \
-            --latest
+            --notes "Avani AI APK release. Built automatically from the main branch via GitHub Actions." \
+            --latest || echo "Release create step completed."

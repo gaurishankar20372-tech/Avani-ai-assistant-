@@ -117,6 +117,8 @@ export default function App() {
   const [chatHeight, setChatHeight] = useState<"standard" | "comfort">("standard");
   const [showHistorySidebar, setShowHistorySidebar] = useState(false);
   const [showMemoryModal, setShowMemoryModal] = useState(false);
+  const [threeDotsTab, setThreeDotsTab] = useState<"creator" | "memory">("creator");
+  const [showThreeDotsMenu, setShowThreeDotsMenu] = useState(false);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [isListeningSpeech, setIsListeningSpeech] = useState(false);
@@ -1621,35 +1623,129 @@ export default function App() {
       {!isFullscreen && (
         <header className="px-4 md:px-6 py-3.5 md:py-4 flex items-center justify-between border-b border-slate-900 bg-slate-950/80 backdrop-blur-md z-20 sticky top-0 shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="relative">
+            <div className="relative shrink-0">
               <div className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping absolute inset-0" />
               <div className="w-2.5 h-2.5 rounded-full bg-rose-500 relative" />
             </div>
-            <div>
-              <h1 className="text-lg md:text-xl font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-rose-400 via-pink-400 to-indigo-400">
-                AVANI
-              </h1>
-              <p className="text-[9px] md:text-[10px] font-mono tracking-widest text-indigo-300">VOICE & CHAT AI v3.1</p>
+            <div className="flex items-center gap-2">
+              <span className="text-lg md:text-xl font-bold tracking-tight text-white leading-none">
+                Avani AI
+              </span>
+              <span className="text-[10px] md:text-xs font-mono font-semibold tracking-wider text-indigo-300 bg-indigo-950/80 border border-indigo-500/40 px-2 py-0.5 rounded-md leading-none">
+                V1.0
+              </span>
             </div>
           </div>
 
           <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setShowSecurity(true)}
-              className="p-1.5 md:p-2 rounded-full hover:bg-slate-900 text-rose-400 hover:text-white transition-all bg-slate-900/40 border border-slate-800/60 flex items-center justify-center gap-1.5 px-2.5 md:px-3"
-              title="System Security & Integrity Kernel"
-            >
-              <Shield className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">Secure</span>
-            </button>
+            {/* Three Dots Menu for Voice Mode */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowThreeDotsMenu(!showThreeDotsMenu)}
+                className="p-1.5 md:p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-900 transition-all border border-slate-800/60 flex items-center justify-center relative cursor-pointer"
+                title="More Options (रचयिता से संपर्क / मेमोरी)"
+              >
+                <MoreVertical className="w-4 h-4" />
+                {memories.length > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-purple-500" />
+                )}
+              </button>
 
-            <button
-              onClick={() => setShowHelp(true)}
-              className="p-1.5 md:p-2 rounded-full hover:bg-slate-900 text-slate-400 hover:text-white transition-all bg-slate-900/40 border border-slate-800/60"
-              title="Sassy Instructions"
-            >
-              <HelpCircle className="w-4 h-4" />
-            </button>
+              {/* Dropdown Menu */}
+              {showThreeDotsMenu && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowThreeDotsMenu(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-2 w-64 bg-[#0a0a0d] border border-zinc-800 rounded-2xl p-1.5 shadow-[0_10px_40px_rgba(0,0,0,0.8)] z-50 text-left backdrop-blur-2xl animate-fadeIn">
+                    <div className="px-3 py-1.5 border-b border-zinc-800 mb-1 flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Options</span>
+                      <span className="text-[9px] text-purple-400 font-mono font-semibold">Avani V1.0</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowThreeDotsMenu(false);
+                        setThreeDotsTab("creator");
+                        setShowMemoryModal(true);
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-zinc-900 text-slate-200 transition-all text-xs font-medium cursor-pointer group"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-pink-500/20 text-pink-400 flex items-center justify-center group-hover:scale-105 transition-all shrink-0">
+                        <User className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 text-left min-w-0">
+                        <div className="font-semibold text-white flex items-center justify-between">
+                          <span>Contact Creator</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-300 font-mono">Vinay</span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 truncate">रचयिता से संपर्क (Socials)</p>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowThreeDotsMenu(false);
+                        setThreeDotsTab("memory");
+                        setShowMemoryModal(true);
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-zinc-900 text-slate-200 transition-all text-xs font-medium cursor-pointer group"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center group-hover:scale-105 transition-all shrink-0">
+                        <Brain className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 text-left min-w-0">
+                        <div className="font-semibold text-white flex items-center justify-between">
+                          <span>AI Memory Bank</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-500/30 font-mono">
+                            {memories.length}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 truncate">Stored facts & preferences</p>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowThreeDotsMenu(false);
+                        setShowSecurity(true);
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-zinc-900 text-slate-200 transition-all text-xs font-medium cursor-pointer group"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center group-hover:scale-105 transition-all shrink-0">
+                        <Shield className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 text-left min-w-0">
+                        <span className="font-semibold text-white">Security & Integrity</span>
+                        <p className="text-[10px] text-slate-400 truncate">Kernel status</p>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowThreeDotsMenu(false);
+                        setShowHelp(true);
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-zinc-900 text-slate-200 transition-all text-xs font-medium cursor-pointer group"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center group-hover:scale-105 transition-all shrink-0">
+                        <HelpCircle className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 text-left min-w-0">
+                        <span className="font-semibold text-white">Help & Instructions</span>
+                        <p className="text-[10px] text-slate-400 truncate">Persona & commands</p>
+                      </div>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </header>
       )}
@@ -1897,8 +1993,9 @@ export default function App() {
                 </button>
 
                 {/* Model / Bot Full Name */}
-                <div className="flex items-center">
-                  <span className="font-semibold text-slate-100 text-base md:text-lg tracking-tight">Avani AI (अवनी)</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-white text-base md:text-lg leading-tight tracking-tight">Avani AI</span>
+                  <span className="text-[10px] md:text-xs font-mono font-semibold tracking-wider text-indigo-300 bg-indigo-950/80 border border-indigo-500/40 px-2 py-0.5 rounded-md leading-none">V1.0</span>
                 </div>
               </div>
 
@@ -1914,18 +2011,114 @@ export default function App() {
                   <AudioLines className="w-5 h-5 sm:w-6 sm:h-6" />
                 </button>
 
-                {/* Three-dot option for AI's Memory */}
-                <button
-                  type="button"
-                  onClick={() => setShowMemoryModal(true)}
-                  className="p-2 sm:p-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800/80 transition-all cursor-pointer flex items-center justify-center relative"
-                  title="Avani AI's Memory Bank"
-                >
-                  <MoreVertical className="w-5 h-5 sm:w-6 sm:h-6" />
-                  {memories.length > 0 && (
-                    <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-purple-500 ring-2 ring-[#17181c]" />
+                {/* Three-dot option for More Options & Creator / Memory */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowThreeDotsMenu(!showThreeDotsMenu)}
+                    className="p-2 sm:p-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800/80 transition-all cursor-pointer flex items-center justify-center relative"
+                    title="More Options (रचयिता से संपर्क / मेमोरी)"
+                  >
+                    <MoreVertical className="w-5 h-5 sm:w-6 sm:h-6" />
+                    {memories.length > 0 && (
+                      <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-purple-500 ring-2 ring-[#17181c]" />
+                    )}
+                  </button>
+
+                  {/* Dropdown Menu */}
+                  {showThreeDotsMenu && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowThreeDotsMenu(false)}
+                      />
+                      <div className="absolute right-0 top-full mt-2 w-64 bg-[#0a0a0d] border border-zinc-800 rounded-2xl p-1.5 shadow-[0_10px_40px_rgba(0,0,0,0.8)] z-50 text-left backdrop-blur-2xl animate-fadeIn">
+                        <div className="px-3 py-1.5 border-b border-zinc-800 mb-1 flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Options</span>
+                          <span className="text-[9px] text-purple-400 font-mono font-semibold">Avani V1.0</span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowThreeDotsMenu(false);
+                            setThreeDotsTab("creator");
+                            setShowMemoryModal(true);
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-zinc-900 text-slate-200 transition-all text-xs font-medium cursor-pointer group"
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-pink-500/20 text-pink-400 flex items-center justify-center group-hover:scale-105 transition-all shrink-0">
+                            <User className="w-4 h-4" />
+                          </div>
+                          <div className="flex-1 text-left min-w-0">
+                            <div className="font-semibold text-white flex items-center justify-between">
+                              <span>Contact Creator</span>
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-300 font-mono">Vinay</span>
+                            </div>
+                            <p className="text-[10px] text-slate-400 truncate">रचयिता से संपर्क (Socials)</p>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowThreeDotsMenu(false);
+                            setThreeDotsTab("memory");
+                            setShowMemoryModal(true);
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-zinc-900 text-slate-200 transition-all text-xs font-medium cursor-pointer group"
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center group-hover:scale-105 transition-all shrink-0">
+                            <Brain className="w-4 h-4" />
+                          </div>
+                          <div className="flex-1 text-left min-w-0">
+                            <div className="font-semibold text-white flex items-center justify-between">
+                              <span>AI Memory Bank</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-500/30 font-mono">
+                                {memories.length}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-400 truncate">Stored facts & preferences</p>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowThreeDotsMenu(false);
+                            setShowSecurity(true);
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-zinc-900 text-slate-200 transition-all text-xs font-medium cursor-pointer group"
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center group-hover:scale-105 transition-all shrink-0">
+                            <Shield className="w-4 h-4" />
+                          </div>
+                          <div className="flex-1 text-left min-w-0">
+                            <span className="font-semibold text-white">Security & Integrity</span>
+                            <p className="text-[10px] text-slate-400 truncate">Kernel status</p>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowThreeDotsMenu(false);
+                            setShowHelp(true);
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-zinc-900 text-slate-200 transition-all text-xs font-medium cursor-pointer group"
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center group-hover:scale-105 transition-all shrink-0">
+                            <HelpCircle className="w-4 h-4" />
+                          </div>
+                          <div className="flex-1 text-left min-w-0">
+                            <span className="font-semibold text-white">Help & Instructions</span>
+                            <p className="text-[10px] text-slate-400 truncate">Persona & commands</p>
+                          </div>
+                        </button>
+                      </div>
+                    </>
                   )}
-                </button>
+                </div>
               </div>
             </div>
 
@@ -2479,77 +2672,6 @@ export default function App() {
         )}
       </main>
 
-      {/* CONTACT WITH CREATOR PANEL (Only in Voice Mode) */}
-      {appMode === "voice" && !isFullscreen && (
-        <footer className="w-full bg-slate-950/60 border-t border-slate-900/60 backdrop-blur-md px-6 py-5 z-20">
-          <div className="max-w-md mx-auto space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-1.5 text-slate-300 text-xs font-semibold tracking-wide uppercase">
-                <User className="w-4 h-4 text-purple-400" />
-                <span className="font-sans">CONTACT WITH CREATOR (रचयिता से संपर्क)</span>
-              </div>
-            </div>
-
-            <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4 space-y-3.5">
-              <p className="text-xs text-slate-300 leading-relaxed font-sans text-justify">
-                This application is exclusively developed and authenticated by <strong className="text-rose-400">Vinay</strong>. Connect with the creator directly:
-              </p>
-
-              <div className="flex flex-col gap-2.5">
-                {/* Instagram Profile */}
-                <a
-                  href="https://www.instagram.com/mgshankartech_1088"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-pink-950/50 via-purple-950/40 to-slate-900/80 hover:from-pink-900/60 hover:via-purple-900/50 hover:to-slate-900 text-pink-300 border border-pink-500/40 hover:border-pink-400/70 transition-all flex items-center justify-between font-semibold text-xs cursor-pointer shadow-sm group"
-                  title="Click to open Instagram Profile: mgshankartech_1088"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="p-1.5 rounded-lg bg-pink-500/20 text-pink-400 group-hover:bg-pink-500/30 group-hover:scale-110 transition-all flex items-center justify-center">
-                      <Instagram className="w-4 h-4 text-pink-400" />
-                    </span>
-                    <span>Instagram: <strong className="text-white hover:underline">mgshankartech_1088</strong></span>
-                  </div>
-                  <ExternalLink className="w-3.5 h-3.5 text-pink-400/80 group-hover:text-pink-300 group-hover:translate-x-0.5 transition-all shrink-0" />
-                </a>
-
-                {/* Email Address */}
-                <a
-                  href="mailto:mgshankar1088@gmail.com"
-                  className="w-full py-2.5 px-4 rounded-xl bg-slate-950 hover:bg-slate-900 text-slate-300 border border-slate-800 hover:border-purple-600/50 transition-all flex items-center justify-between font-semibold text-xs cursor-pointer group"
-                  title="Click to send email to mgshankar1088@gmail.com"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="p-1.5 rounded-lg bg-purple-500/20 text-purple-400 group-hover:bg-purple-500/30 group-hover:scale-110 transition-all flex items-center justify-center">
-                      <Mail className="w-4 h-4 text-purple-400" />
-                    </span>
-                    <span>Email: <strong className="text-slate-200 hover:underline">mgshankar1088@gmail.com</strong></span>
-                  </div>
-                  <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-purple-400 group-hover:translate-x-0.5 transition-all shrink-0" />
-                </a>
-
-                {/* GitHub Profile */}
-                <a
-                  href="https://github.com/gaurishankar20372-tech"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-2.5 px-4 rounded-xl bg-slate-950 hover:bg-slate-900 text-slate-300 border border-slate-800 hover:border-slate-700 transition-all flex items-center justify-between font-semibold text-xs cursor-pointer group"
-                  title="Click to open GitHub Profile: gaurishankar20372-tech"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="p-1.5 rounded-lg bg-slate-800 text-slate-300 group-hover:bg-slate-700 group-hover:scale-110 transition-all flex items-center justify-center">
-                      <Github className="w-4 h-4 text-slate-300" />
-                    </span>
-                    <span>GitHub: <strong className="text-slate-200 hover:underline">gaurishankar20372-tech</strong></span>
-                  </div>
-                  <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300 group-hover:translate-x-0.5 transition-all shrink-0" />
-                </a>
-              </div>
-            </div>
-          </div>
-        </footer>
-      )}
-
       {/* DETAILED HELPMENU MODAL (Avani personality & instructions) */}
       <AnimatePresence>
         {showHelp && (
@@ -2557,70 +2679,78 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[100] flex items-center justify-center p-3 sm:p-5 overflow-y-auto"
+            onClick={() => setShowHelp(false)}
           >
             <motion.div 
-              initial={{ scale: 0.95 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.95 }}
-              className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-6 text-slate-300 shadow-2xl relative overflow-hidden"
+              initial={{ scale: 0.95, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 15 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[#090a0d] border border-zinc-800 rounded-3xl max-w-lg w-full p-5 sm:p-6 text-slate-200 shadow-[0_0_60px_rgba(0,0,0,0.95)] relative overflow-hidden flex flex-col max-h-[90vh] my-auto"
               style={{
-                backgroundImage: "radial-gradient(circle at top right, rgba(244,63,94,0.1) 0%, transparent 50%)"
+                backgroundImage: "radial-gradient(circle at top right, rgba(244,63,94,0.12) 0%, transparent 60%)"
               }}
             >
-              <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-800">
-                <div className="flex items-center space-x-2">
-                  <Flame className="w-5 h-5 text-rose-500" />
-                  <h3 className="font-bold text-white text-lg tracking-wider">Meet Avani!</h3>
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-zinc-800 shrink-0">
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center">
+                    <Flame className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-base sm:text-lg tracking-wide">Meet Avani!</h3>
+                    <p className="text-[10px] text-slate-400 font-mono">Help & Instructions</p>
+                  </div>
                 </div>
                 <button 
                   onClick={() => setShowHelp(false)}
-                  className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
+                  className="p-1.5 rounded-xl hover:bg-zinc-800 text-slate-400 hover:text-white transition-all cursor-pointer"
+                  title="Close"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div id="instruction-dialog" className="space-y-4 text-xs leading-relaxed">
-                <p>
+              <div id="instruction-dialog" className="space-y-3.5 text-xs leading-relaxed overflow-y-auto pr-1 scrollbar-thin">
+                <p className="text-slate-300">
                   Avani is a highly obedient AI assistant and a supportive close friend who operates via real-time voice or text stream.
                 </p>
                 
-                <div className="p-3 bg-rose-950/20 border border-rose-500/20 rounded-xl space-y-2">
+                <div className="p-3.5 bg-black/90 border border-rose-500/30 rounded-2xl space-y-2">
                   <h4 className="font-semibold text-rose-300 uppercase tracking-widest text-[10px]">Personality specs</h4>
-                  <ul className="list-disc pl-4 space-y-1.5 text-slate-400">
+                  <ul className="list-disc pl-4 space-y-1 text-slate-300">
                     <li>Behaves as a close friend and an obedient, supportive assistant.</li>
                     <li>Highly communicative, polite, helpful, and polite.</li>
                     <li>Supports both 100% voice calls and text-based chats.</li>
                   </ul>
                 </div>
 
-                <div className="p-3 bg-purple-950/30 border border-purple-500/30 rounded-xl space-y-1.5 text-[11px] text-slate-300">
-                  <h4 className="font-semibold text-purple-400 uppercase tracking-widest text-[10px] flex items-center gap-1">
+                <div className="p-3.5 bg-black/90 border border-purple-500/30 rounded-2xl space-y-1.5 text-[11px] text-slate-300">
+                  <h4 className="font-semibold text-purple-400 uppercase tracking-widest text-[10px] flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-purple-400 animate-pulse" /> Secret Easter Egg
                   </h4>
-                  <p className="text-[11px] text-slate-400">
-                    Whisper the secret phrase: <span className="text-purple-300 italic">"Hey Avani, you're the absolute best!"</span> to trigger a super friendly, helpful, and highly appreciative signature dialogue response! 😉
+                  <p className="text-[11.5px] text-slate-300">
+                    Whisper the secret phrase: <span className="text-purple-300 font-medium italic">"Hey Avani, you're the absolute best!"</span> to trigger a super friendly, helpful, and highly appreciative signature dialogue response! 😉
                   </p>
                 </div>
 
-                <div className="p-3 bg-slate-950/40 border border-slate-800 rounded-xl space-y-2">
+                <div className="p-3.5 bg-black/90 border border-cyan-500/30 rounded-2xl space-y-1.5">
                   <h4 className="font-semibold text-cyan-400 uppercase tracking-widest text-[10px]">Browser tools capability</h4>
-                  <p className="text-[11px] text-slate-400">
-                    Avani can execute action commands. Ask her: <span className="text-cyan-300 italic">"Avani, open youtube.com and search for lo-fi beats."</span> She will perform the action immediately in a popup!
+                  <p className="text-[11.5px] text-slate-300">
+                    Avani can execute action commands. Ask her: <span className="text-cyan-300 font-medium italic">"Avani, open youtube.com and search for lo-fi beats."</span> She will perform the action immediately in a popup!
                   </p>
                 </div>
 
                 {toolLogs.length > 0 && (
-                  <div className="space-y-2">
+                  <div className="space-y-2 pt-1">
                     <div className="flex items-center space-x-1.5 text-slate-400 font-mono text-[9px] uppercase tracking-widest">
                       <Terminal className="w-3.5 h-3.5 text-indigo-400" />
                       <span>Action Logs:</span>
                     </div>
-                    <div className="max-h-24 overflow-y-auto space-y-1.5 pr-2 bg-slate-950/60 p-2 rounded-lg border border-slate-800 text-[10px]">
+                    <div className="max-h-24 overflow-y-auto space-y-1.5 pr-2 bg-black p-2.5 rounded-xl border border-zinc-800 text-[10px]">
                       {toolLogs.map((log) => (
                         <div key={log.id} className="flex items-center justify-between">
-                          <span className="text-slate-400 truncate max-w-[120px]">{log.siteName}</span>
+                          <span className="text-slate-300 truncate max-w-[140px]">{log.siteName}</span>
                           <a 
                             href={log.url} 
                             target="_blank" 
@@ -2638,7 +2768,7 @@ export default function App() {
 
               <button 
                 onClick={() => setShowHelp(false)}
-                className="w-full mt-6 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-pink-500 hover:from-rose-500 hover:to-pink-400 text-white font-semibold transition-all text-sm uppercase tracking-widest"
+                className="w-full mt-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-pink-500 hover:from-rose-500 hover:to-pink-400 text-white font-semibold transition-all text-xs sm:text-sm uppercase tracking-widest cursor-pointer shadow-lg shadow-rose-900/30 shrink-0"
               >
                 Let's Talk
               </button>
@@ -2654,46 +2784,54 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[100] flex items-center justify-center p-3 sm:p-5 overflow-y-auto"
+            onClick={() => setShowSecurity(false)}
           >
             <motion.div 
-              initial={{ scale: 0.95 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.95 }}
-              className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-6 text-slate-300 shadow-2xl relative overflow-hidden"
+              initial={{ scale: 0.95, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 15 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[#090a0d] border border-zinc-800 rounded-3xl max-w-lg w-full p-5 sm:p-6 text-slate-200 shadow-[0_0_60px_rgba(0,0,0,0.95)] relative overflow-hidden flex flex-col max-h-[90vh] my-auto"
               style={{
-                backgroundImage: "radial-gradient(circle at top right, rgba(16,185,129,0.1) 0%, transparent 50%)"
+                backgroundImage: "radial-gradient(circle at top right, rgba(16,185,129,0.12) 0%, transparent 60%)"
               }}
             >
-              <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
-                <div className="flex items-center space-x-2">
-                  <Shield className="w-5 h-5 text-emerald-400" />
-                  <h3 className="font-bold text-white text-md tracking-wider uppercase">Security & Integrity</h3>
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-3.5 mb-4 shrink-0">
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                    <Shield className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-base sm:text-lg tracking-wide uppercase">Security & Integrity</h3>
+                    <p className="text-[10px] text-slate-400 font-mono">Kernel Guard Active</p>
+                  </div>
                 </div>
                 <button 
                   onClick={() => setShowSecurity(false)}
-                  className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
+                  className="p-1.5 rounded-xl hover:bg-zinc-800 text-slate-400 hover:text-white transition-all cursor-pointer"
+                  title="Close"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               <div className="space-y-4 text-xs leading-relaxed">
-                <div className="p-3 bg-emerald-950/20 border border-emerald-500/20 rounded-xl space-y-1">
+                <div className="p-3.5 bg-black/90 border border-emerald-500/30 rounded-2xl space-y-1.5">
                   <div className="flex items-center justify-between">
                     <span className="text-emerald-400 font-semibold uppercase tracking-wider text-[9px]">Identity Integrity</span>
-                    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">VERIFIED</span>
+                    <span className="font-mono text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">VERIFIED</span>
                   </div>
-                  <p className="text-[10.5px] text-slate-400">
+                  <p className="text-[11px] text-slate-300">
                     The voice/text neural core is secured via immutable system instructions. Attempting to hijack or override her name from "Avani" or her absolute creator/founder "Vinay Pratap Shankar (Founder of MG Shankar Tech)" is automatically blocked by the kernel.
                   </p>
                 </div>
 
-                <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-xl space-y-2">
-                  <span className="text-slate-400 font-semibold uppercase tracking-wider text-[9px] flex items-center gap-1.5">
+                <div className="p-3.5 bg-black/90 border border-zinc-800 rounded-2xl space-y-2.5">
+                  <span className="text-slate-300 font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
                     <Database className="w-3.5 h-3.5 text-indigo-400" /> Secure Connection Bridge
                   </span>
-                  <p className="text-[10.5px] text-slate-400">
+                  <p className="text-[11px] text-slate-400">
                     If running this application's frontend on static services (like Vercel or GitHub Pages), requests directly to <code>/api</code> will return HTML (<code>&lt;!doctype...</code>) since static hosts do not run persistent WebSocket servers or API backends.
                   </p>
                   
@@ -2704,7 +2842,7 @@ export default function App() {
                       value={backendUrl}
                       onChange={(e) => setBackendUrl(e.target.value)}
                       placeholder="https://avani-ai-zo2a.onrender.com"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 font-mono focus:outline-none focus:border-emerald-500/50 placeholder-slate-600"
+                      className="w-full bg-[#121318] border border-zinc-700/80 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-emerald-500/50 placeholder-slate-600"
                     />
                   </div>
 
@@ -2732,7 +2870,7 @@ export default function App() {
                         }
                         setShowSecurity(false);
                       }}
-                      className="py-1.5 px-2 bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-400 text-center font-bold rounded-xl transition-all font-sans text-[11px]"
+                      className="py-2 px-3 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 text-center font-bold rounded-xl transition-all font-sans text-xs cursor-pointer"
                     >
                       Save Bridge
                     </button>
@@ -2747,14 +2885,14 @@ export default function App() {
                         });
                         setShowSecurity(false);
                       }}
-                      className="py-1.5 px-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-slate-400 text-center font-bold rounded-xl transition-all font-sans text-[11px]"
+                      className="py-2 px-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-slate-300 text-center font-bold rounded-xl transition-all font-sans text-xs cursor-pointer"
                     >
                       Reset Relative
                     </button>
                   </div>
                 </div>
 
-                <div className="p-3 bg-slate-950/40 border border-slate-800/80 rounded-xl space-y-1 text-slate-400 text-[10.5px]">
+                <div className="p-3 bg-black/80 border border-zinc-800/80 rounded-2xl space-y-1 text-slate-300 text-[11px]">
                   <p><strong>System Lock:</strong> Anti-Tampering Engine v2.0</p>
                   <p><strong>Enforcer Agent:</strong> Guard Kernel</p>
                   <p><strong>Status:</strong> Active & fully shielded against prompt overrides.</p>
@@ -2763,7 +2901,7 @@ export default function App() {
 
               <button 
                 onClick={() => setShowSecurity(false)}
-                className="w-full mt-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-semibold transition-all text-sm uppercase tracking-widest"
+                className="w-full mt-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-semibold transition-all text-xs sm:text-sm uppercase tracking-widest cursor-pointer shadow-lg shadow-emerald-900/30 shrink-0"
               >
                 System Verified
               </button>
@@ -2771,13 +2909,13 @@ export default function App() {
           </motion.div>
         )}
 
-        {/* AI'S MEMORY BANK MODAL (Triggered by 3-dot option in corner) */}
+        {/* THREE-DOTS MODAL: CONTACT WITH CREATOR & AI MEMORY BANK */}
         {showMemoryModal && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/95 backdrop-blur-2xl overflow-y-auto"
             onClick={() => setShowMemoryModal(false)}
           >
             <motion.div
@@ -2785,113 +2923,236 @@ export default function App() {
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 15 }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-lg bg-[#1a1c22] border border-slate-700/80 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col max-h-[85vh] overflow-hidden text-left"
+              className="w-full max-w-lg bg-[#090a0d] border border-zinc-800 rounded-3xl p-5 sm:p-6 shadow-[0_0_60px_rgba(0,0,0,0.95)] flex flex-col max-h-[90vh] overflow-hidden text-left my-auto"
             >
-              {/* Header */}
-              <div className="flex items-center justify-between pb-4 border-b border-slate-800 shrink-0">
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-2xl bg-purple-950/70 border border-purple-500/30 flex items-center justify-center text-purple-300 shadow-inner">
-                    <Brain className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base sm:text-lg font-bold text-slate-100">Avani AI's Memory</h3>
-                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono bg-purple-950/80 text-purple-300 border border-purple-500/40 font-semibold">
-                        {memories.length} {memories.length === 1 ? "memory" : "memories"}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-0.5">Personal details & preferences remembered by Avani across chats.</p>
-                  </div>
+              {/* Header with Segmented Tabs and Close Button */}
+              <div className="flex items-center justify-between pb-3.5 border-b border-zinc-800 shrink-0">
+                <div className="flex items-center bg-black p-1 rounded-2xl border border-zinc-800 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setThreeDotsTab("creator")}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                      threeDotsTab === "creator"
+                        ? "bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-md shadow-pink-900/40"
+                        : "text-slate-400 hover:text-slate-200 hover:bg-zinc-900"
+                    }`}
+                  >
+                    <User className="w-3.5 h-3.5" />
+                    <span>Contact Creator (रचयिता)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setThreeDotsTab("memory")}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                      threeDotsTab === "memory"
+                        ? "bg-purple-600 text-white shadow-md shadow-purple-900/40"
+                        : "text-slate-400 hover:text-slate-200 hover:bg-zinc-900"
+                    }`}
+                  >
+                    <Brain className="w-3.5 h-3.5" />
+                    <span>AI Memory ({memories.length})</span>
+                  </button>
                 </div>
+
                 <button
                   type="button"
                   onClick={() => setShowMemoryModal(false)}
-                  className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
-                  title="Close Memory Bank"
+                  className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
+                  title="Close Dialog"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              {/* Memories List */}
-              <div className="flex-1 overflow-y-auto my-4 space-y-2.5 pr-1 scrollbar-thin">
-                {memories.length === 0 ? (
-                  <div className="py-10 text-center text-slate-400 text-xs">
-                    <Brain className="w-10 h-10 text-slate-600 mx-auto mb-2 opacity-50" />
-                    <p className="font-semibold text-slate-300 text-sm">No memories stored yet</p>
-                    <p className="text-xs mt-1 text-slate-500 max-w-xs mx-auto">
-                      Ask Avani AI to remember details during conversation, or type custom instructions below.
+              {/* TAB 1: CONTACT WITH CREATOR */}
+              {threeDotsTab === "creator" && (
+                <div className="flex-1 overflow-y-auto my-3 space-y-3.5 pr-1 scrollbar-thin">
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-[#180f1e] via-[#0d0a14] to-[#090a0d] border border-pink-500/30 shadow-inner">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-pink-300 font-bold uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                        <User className="w-4 h-4 text-pink-400" />
+                        CREATOR & FOUNDER (रचयिता)
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-pink-500/20 text-pink-300 border border-pink-500/30 font-semibold">
+                        VERIFIED
+                      </span>
+                    </div>
+                    <h3 className="text-base sm:text-lg font-bold text-white">
+                      Vinay Pratap Shankar (Vinay)
+                    </h3>
+                    <p className="text-xs text-purple-300/90 font-medium mt-0.5">
+                      Founder of MG Shankar Tech & Exclusive Creator of Avani AI
+                    </p>
+                    <p className="text-xs text-slate-300 leading-relaxed font-sans text-justify mt-2.5">
+                      This application is exclusively developed and authenticated by <strong className="text-pink-400 font-bold">Vinay</strong>. Connect with the creator directly:
                     </p>
                   </div>
-                ) : (
-                  memories.map((memory, index) => (
-                    <div
-                      key={index}
-                      className="group flex items-start justify-between p-3.5 rounded-2xl bg-slate-900/70 border border-slate-800/80 hover:border-purple-500/40 transition-all text-xs shadow-sm"
+
+                  {/* Direct Contact Links */}
+                  <div className="flex flex-col gap-2.5">
+                    {/* Instagram */}
+                    <a
+                      href="https://www.instagram.com/mgshankartech_1088"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-3 px-4 rounded-2xl bg-black hover:bg-zinc-950 text-pink-300 border border-pink-500/30 hover:border-pink-400 transition-all flex items-center justify-between font-semibold text-xs cursor-pointer shadow-sm group"
+                      title="Click to open Instagram Profile: mgshankartech_1088"
                     >
-                      <div className="flex items-start gap-3 flex-1 pr-2">
-                        <span className="text-purple-400 font-bold text-sm mt-0.5">✦</span>
-                        <p className="text-slate-200 leading-relaxed break-words text-[13px]">{memory}</p>
+                      <div className="flex items-center gap-3">
+                        <span className="p-2 rounded-xl bg-pink-500/20 text-pink-400 group-hover:bg-pink-500/30 group-hover:scale-110 transition-all flex items-center justify-center">
+                          <Instagram className="w-4 h-4 text-pink-400" />
+                        </span>
+                        <div>
+                          <span className="text-[10px] text-pink-400/80 uppercase font-mono block">Instagram</span>
+                          <span className="text-sm text-white font-bold group-hover:underline">@mgshankartech_1088</span>
+                        </div>
                       </div>
+                      <ExternalLink className="w-4 h-4 text-pink-400/80 group-hover:text-pink-300 group-hover:translate-x-0.5 transition-all shrink-0" />
+                    </a>
+
+                    {/* Email */}
+                    <a
+                      href="mailto:mgshankar1088@gmail.com"
+                      className="w-full py-3 px-4 rounded-2xl bg-black hover:bg-zinc-950 text-slate-200 border border-zinc-800 hover:border-purple-500/50 transition-all flex items-center justify-between font-semibold text-xs cursor-pointer group"
+                      title="Click to send email to mgshankar1088@gmail.com"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="p-2 rounded-xl bg-purple-500/20 text-purple-400 group-hover:bg-purple-500/30 group-hover:scale-110 transition-all flex items-center justify-center">
+                          <Mail className="w-4 h-4 text-purple-400" />
+                        </span>
+                        <div>
+                          <span className="text-[10px] text-purple-400/80 uppercase font-mono block">Direct Email</span>
+                          <span className="text-sm text-white font-bold group-hover:underline">mgshankar1088@gmail.com</span>
+                        </div>
+                      </div>
+                      <ExternalLink className="w-4 h-4 text-slate-500 group-hover:text-purple-400 group-hover:translate-x-0.5 transition-all shrink-0" />
+                    </a>
+
+                    {/* GitHub */}
+                    <a
+                      href="https://github.com/gaurishankar20372-tech"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-3 px-4 rounded-2xl bg-black hover:bg-zinc-950 text-slate-200 border border-zinc-800 hover:border-zinc-700 transition-all flex items-center justify-between font-semibold text-xs cursor-pointer group"
+                      title="Click to open GitHub Profile: gaurishankar20372-tech"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="p-2 rounded-xl bg-zinc-800 text-slate-300 group-hover:bg-zinc-700 group-hover:scale-110 transition-all flex items-center justify-center">
+                          <Github className="w-4 h-4 text-slate-300" />
+                        </span>
+                        <div>
+                          <span className="text-[10px] text-slate-400 uppercase font-mono block">GitHub</span>
+                          <span className="text-sm text-white font-bold group-hover:underline">gaurishankar20372-tech</span>
+                        </div>
+                      </div>
+                      <ExternalLink className="w-4 h-4 text-slate-500 group-hover:text-slate-300 group-hover:translate-x-0.5 transition-all shrink-0" />
+                    </a>
+                  </div>
+
+                  <div className="p-3 bg-black border border-zinc-800 rounded-2xl flex items-center justify-between text-xs text-slate-400">
+                    <span className="text-[11px] text-slate-400">Identity Integrity</span>
+                    <span className="text-[10px] text-emerald-400 font-semibold uppercase flex items-center gap-1 font-mono">
+                      ✓ Immutable Protection Active
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: AI MEMORY BANK */}
+              {threeDotsTab === "memory" && (
+                <>
+                  <div className="flex items-center gap-3 my-2 pt-1 pb-2">
+                    <div className="w-9 h-9 rounded-xl bg-purple-950/70 border border-purple-500/30 flex items-center justify-center text-purple-300 shrink-0">
+                      <Brain className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white">Avani AI's Memory Bank</h4>
+                      <p className="text-xs text-slate-400">Personal details & preferences remembered by Avani across chats.</p>
+                    </div>
+                  </div>
+
+                  {/* Memories List */}
+                  <div className="flex-1 overflow-y-auto my-2 space-y-2.5 pr-1 scrollbar-thin max-h-60">
+                    {memories.length === 0 ? (
+                      <div className="py-10 text-center text-slate-400 text-xs bg-black rounded-2xl border border-zinc-800/80 p-4">
+                        <Brain className="w-10 h-10 text-slate-600 mx-auto mb-2 opacity-50" />
+                        <p className="font-semibold text-slate-200 text-sm">No memories stored yet</p>
+                        <p className="text-xs mt-1 text-slate-400 max-w-xs mx-auto">
+                          Ask Avani AI to remember details during conversation, or type custom instructions below.
+                        </p>
+                      </div>
+                    ) : (
+                      memories.map((memory, index) => (
+                        <div
+                          key={index}
+                          className="group flex items-start justify-between p-3.5 rounded-2xl bg-black border border-zinc-800 hover:border-purple-500/50 transition-all text-xs shadow-sm"
+                        >
+                          <div className="flex items-start gap-3 flex-1 pr-2">
+                            <span className="text-purple-400 font-bold text-sm mt-0.5">✦</span>
+                            <p className="text-slate-100 leading-relaxed break-words text-[13px]">{memory}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMemories((prev) => prev.filter((_, i) => i !== index));
+                              setNotification({
+                                message: `Deleted memory: "${memory.slice(0, 24)}..."`
+                              });
+                            }}
+                            className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-zinc-800 transition-all cursor-pointer shrink-0"
+                            title="Delete memory"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Add Custom Memory Form */}
+                  <form onSubmit={handleAddManualFact} className="pt-3 border-t border-zinc-800 shrink-0 flex flex-col gap-2">
+                    <label className="text-xs font-semibold text-slate-200 flex items-center justify-between">
+                      <span>Teach Avani AI a New Memory:</span>
+                      <span className="text-[10px] text-slate-400 font-normal">Stored locally & injected into prompt</span>
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newManualFact}
+                        onChange={(e) => setNewManualFact(e.target.value)}
+                        placeholder="e.g. My name is Alex and I prefer Python solutions..."
+                        className="flex-1 bg-black border border-zinc-700 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                      />
                       <button
-                        type="button"
-                        onClick={() => {
-                          setMemories((prev) => prev.filter((_, i) => i !== index));
-                          setNotification({
-                            message: `Deleted memory: "${memory.slice(0, 24)}..."`
-                          });
-                        }}
-                        className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800/80 transition-all cursor-pointer shrink-0"
-                        title="Delete memory"
+                        type="submit"
+                        disabled={!newManualFact.trim()}
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:hover:bg-purple-600 text-white rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 shadow-md"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Plus className="w-4 h-4" />
+                        <span>Add</span>
                       </button>
                     </div>
-                  ))
-                )}
-              </div>
-
-              {/* Add Custom Memory Form */}
-              <form onSubmit={handleAddManualFact} className="pt-3 border-t border-slate-800 shrink-0 flex flex-col gap-2">
-                <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-                  <span>Teach Avani AI a New Memory:</span>
-                  <span className="text-[10px] text-slate-500 font-normal">Stored locally & injected into prompt</span>
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newManualFact}
-                    onChange={(e) => setNewManualFact(e.target.value)}
-                    placeholder="e.g. My name is Alex and I prefer Python solutions..."
-                    className="flex-1 bg-slate-900/90 border border-slate-700/90 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!newManualFact.trim()}
-                    className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:hover:bg-purple-600 text-white rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 shadow-md"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Add</span>
-                  </button>
-                </div>
-                {memories.length > 0 && (
-                  <div className="flex justify-between items-center pt-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm("Are you sure you want to clear all stored memories?")) {
-                          setMemories([]);
-                          setNotification({ message: "Cleared all AI memories." });
-                        }
-                      }}
-                      className="text-xs text-rose-400 hover:text-rose-300 hover:underline cursor-pointer"
-                    >
-                      Clear all memories
-                    </button>
-                    <span className="text-[11px] text-emerald-400 font-medium">✓ Active in prompts</span>
-                  </div>
-                )}
-              </form>
+                    {memories.length > 0 && (
+                      <div className="flex justify-between items-center pt-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm("Are you sure you want to clear all stored memories?")) {
+                              setMemories([]);
+                              setNotification({ message: "Cleared all AI memories." });
+                            }
+                          }}
+                          className="text-xs text-rose-400 hover:text-rose-300 hover:underline cursor-pointer"
+                        >
+                          Clear all memories
+                        </button>
+                        <span className="text-[11px] text-emerald-400 font-medium">✓ Active in prompts</span>
+                      </div>
+                    )}
+                  </form>
+                </>
+              )}
             </motion.div>
           </motion.div>
         )}

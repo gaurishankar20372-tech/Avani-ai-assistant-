@@ -1,0 +1,9 @@
+{
+  "appId": "com.avani.ai",
+  "appName": "Avani AI",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  }
+}

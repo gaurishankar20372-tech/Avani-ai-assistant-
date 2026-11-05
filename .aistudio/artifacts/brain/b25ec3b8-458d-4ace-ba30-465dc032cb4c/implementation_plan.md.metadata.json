@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan to format 'Avani AI' and 'V1.0' into a single line in the Voice Mode header, verify removal of extra on-screen security/help icons, and ensure all features are cleanly accessible via the three-dots dropdown.",
+  "updatedAt":  "2026-10-21T02:54:22.980640161Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
